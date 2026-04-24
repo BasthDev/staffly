@@ -212,7 +212,7 @@ const styles = StyleSheet.create({
   closeButton: {
     width: 36,
     height: 36,
-    borderRadius: 18,
+    borderRadius: 24,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -227,14 +227,14 @@ const styles = StyleSheet.create({
   },
   yearArrow: {
     padding: 8,
-    borderRadius: 12,
+    borderRadius: 24,
     backgroundColor: '#F0F9FF',
   },
   yearBadge: {
     backgroundColor: '#F0F9FF',
     paddingHorizontal: 24,
     paddingVertical: 10,
-    borderRadius: 12,
+    borderRadius: 24,
     marginHorizontal: 16,
     borderWidth: 2,
     borderColor: '#29b0f9',
@@ -257,7 +257,7 @@ const styles = StyleSheet.create({
   },
   monthItemGradient: {
     flex: 1,
-    borderRadius: 12,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#29b0f9',
@@ -268,7 +268,7 @@ const styles = StyleSheet.create({
   },
   monthItemDefault: {
     flex: 1,
-    borderRadius: 12,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#F8FAFC',
@@ -321,7 +321,7 @@ const styles = StyleSheet.create({
   clearButton: {
     flex: 1,
     backgroundColor: '#F1F5F9',
-    borderRadius: 12,
+    borderRadius: 24,
     paddingVertical: 14,
     alignItems: 'center',
     borderWidth: 1,
@@ -334,11 +334,11 @@ const styles = StyleSheet.create({
   },
   todayButton: {
     flex: 1,
-    borderRadius: 12,
+    borderRadius: 24,
     overflow: 'hidden',
   },
   todayButtonGradient: {
-    paddingVertical: 14,
+    paddingVertical: 15,
     alignItems: 'center',
   },
   todayButtonText: {

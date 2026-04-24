@@ -8,13 +8,13 @@ import {
   TouchableWithoutFeedback,
   View,
 } from 'react-native';
-import { LogIn, LogOut, Clock, Calendar, CircleCheck as CheckCircle2 } from 'lucide-react-native';
+import { LogIn, LogOut, Clock, Calendar, CircleCheck as CheckCircle2, Edit3 } from 'lucide-react-native';
 import { formatDateLong, formatCurrentTimeSeconds } from '@/lib/dateUtils';
 
 interface AttendancePopupProps {
   visible: boolean;
   type: 'MASUK' | 'KELUAR';
-  onConfirm: () => Promise<void> | void;
+  onConfirm: (time: string) => Promise<void> | void;
   onCancel: () => void;
 }
 
@@ -30,6 +30,11 @@ export default function AttendancePopup({
   const [confirmed, setConfirmed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Time editing state
+  const [isEditingTime, setIsEditingTime] = useState(false);
+  const [editHour, setEditHour] = useState('');
+  const [editMinute, setEditMinute] = useState('');
 
   // Reset and animate on visibility change
   useEffect(() => {
@@ -41,6 +46,14 @@ export default function AttendancePopup({
       // Reset state when opening
       setConfirmed(false);
       setLiveTime(formatCurrentTimeSeconds());
+      
+      // Initialize edit time with current time
+      const now = new Date();
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      setEditHour(hours);
+      setEditMinute(minutes);
+      setIsEditingTime(false);
 
       // Reset animation values before starting
       fadeAnim.setValue(0);
@@ -79,7 +92,7 @@ export default function AttendancePopup({
         slideAnim.setValue(400);
       });
     }
-  }, [visible]);
+  }, [visible, fadeAnim, slideAnim]);
 
   useEffect(() => {
     if (!visible) return;
@@ -94,11 +107,20 @@ export default function AttendancePopup({
   const bgAccent = isIn ? '#ecf5fd' : '#FFF1F2';
   const today = new Date();
 
+  const adjustTime = (value: string, delta: number, max: number) => {
+    const num = parseInt(value, 10) || 0;
+    const newValue = num + delta;
+    if (newValue < 0) return String(max).padStart(2, '0');
+    if (newValue > max) return '00';
+    return String(newValue).padStart(2, '0');
+  };
+
   async function handleConfirm() {
     setLoading(true);
     setError(null);
     try {
-      await onConfirm();
+      const timeToUse = isEditingTime ? `${editHour}:${editMinute}` : liveTime;
+      await onConfirm(timeToUse);
       setConfirmed(true);
       // Auto close after showing success for 1.5 seconds
       setTimeout(() => {
@@ -153,7 +175,54 @@ export default function AttendancePopup({
                 <View style={styles.infoRow}>
                   <Clock size={16} color="#64748B" strokeWidth={2} />
                   <Text style={styles.infoLabel}>Waktu</Text>
-                  <Text style={[styles.infoValue, styles.timeValue]}>{liveTime}</Text>
+                  {isEditingTime ? (
+                    <View style={styles.timePickerContainer}>
+                      <View style={styles.timePicker}>
+                        <TouchableOpacity
+                          style={styles.timeAdjustBtn}
+                          onPress={() => setEditHour(adjustTime(editHour, 1, 23))}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={styles.timeAdjustText}>+</Text>
+                        </TouchableOpacity>
+                        <Text style={styles.timePickerValue}>{editHour}</Text>
+                        <TouchableOpacity
+                          style={styles.timeAdjustBtn}
+                          onPress={() => setEditHour(adjustTime(editHour, -1, 23))}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={styles.timeAdjustText}>-</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <Text style={styles.timeSeparator}>:</Text>
+                      <View style={styles.timePicker}>
+                        <TouchableOpacity
+                          style={styles.timeAdjustBtn}
+                          onPress={() => setEditMinute(adjustTime(editMinute, 1, 59))}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={styles.timeAdjustText}>+</Text>
+                        </TouchableOpacity>
+                        <Text style={styles.timePickerValue}>{editMinute}</Text>
+                        <TouchableOpacity
+                          style={styles.timeAdjustBtn}
+                          onPress={() => setEditMinute(adjustTime(editMinute, -1, 59))}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={styles.timeAdjustText}>-</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ) : (
+                    <Text style={[styles.infoValue, styles.timeValue]}>{liveTime}</Text>
+                  )}
+                  <TouchableOpacity
+                    style={styles.editTimeBtn}
+                    onPress={() => setIsEditingTime(!isEditingTime)}
+                    activeOpacity={0.7}
+                  >
+                    <Edit3 size={14} color="#64748B" />
+                  </TouchableOpacity>
                 </View>
                 <View style={styles.divider} />
                 <View style={styles.infoRow}>
@@ -190,8 +259,8 @@ export default function AttendancePopup({
                 </View>
               )}
 
-              {/* Buttons - only show when not loading and not confirmed */}
-              {!loading && !confirmed && !error && (
+              {/* Buttons - always show when not loading/confirmed so user can retry or close on error */}
+              {!loading && !confirmed && (
                 <>
                   <TouchableOpacity
                     style={[styles.confirmBtn, { backgroundColor: accentColor }]}
@@ -199,7 +268,7 @@ export default function AttendancePopup({
                     activeOpacity={0.85}
                   >
                     <Text style={styles.confirmBtnText}>
-                      Konfirmasi {isIn ? 'Absen Masuk' : 'Absen Keluar'}
+                      {error ? 'Coba Lagi' : `Konfirmasi ${isIn ? 'Absen Masuk' : 'Absen Keluar'}`}
                     </Text>
                   </TouchableOpacity>
 
@@ -271,7 +340,7 @@ const styles = StyleSheet.create({
   infoCard: {
     width: '100%',
     backgroundColor: '#F8FAFC',
-    borderRadius: 16,
+    borderRadius: 24,
     paddingVertical: 4,
     marginBottom: 28,
     borderWidth: 1,
@@ -308,12 +377,12 @@ const styles = StyleSheet.create({
   typeDot: {
     width: 16,
     height: 16,
-    borderRadius: 8,
+    borderRadius: 24,
   },
   typeBadge: {
     paddingHorizontal: 12,
     paddingVertical: 4,
-    borderRadius: 20,
+    borderRadius: 24,
   },
   typeBadgeText: {
     fontSize: 13,
@@ -323,7 +392,7 @@ const styles = StyleSheet.create({
   confirmBtn: {
     width: '100%',
     paddingVertical: 16,
-    borderRadius: 14,
+    borderRadius: 24,
     alignItems: 'center',
     marginBottom: 12,
     shadowColor: '#000',
@@ -360,7 +429,7 @@ const styles = StyleSheet.create({
   errorContainer: {
     backgroundColor: '#FEF2F2',
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 24,
     marginBottom: 16,
     borderWidth: 1,
     borderColor: '#FECACA',
@@ -379,5 +448,47 @@ const styles = StyleSheet.create({
     color: '#10B981',
     fontSize: 18,
     fontWeight: '700',
+  },
+  timePickerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  timePicker: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  timeAdjustBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timeAdjustText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0F172A',
+    lineHeight: 18,
+  },
+  timePickerValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0F172A',
+    minWidth: 24,
+    textAlign: 'center',
+  },
+  timeSeparator: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#CBD5E1',
+  },
+  editTimeBtn: {
+    padding: 4,
+    borderRadius: 6,
   },
 });

@@ -1,30 +1,36 @@
 import { Tabs } from 'expo-router';
-import { Hop as Home, Clock3, Fingerprint } from 'lucide-react-native';
+import { Clock3, Fingerprint } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function TabLayout() {
+  const insets = useSafeAreaInsets();
+
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
           backgroundColor: '#FFFFFF',
-          borderTopColor: '#F1F5F9',
+          borderTopColor: '#E2E8F0',
           borderTopWidth: 1,
-          height: 80,
-          paddingBottom: 10,
-          paddingTop: 8,
+          height: 66 + Math.max(insets.bottom, 10),
+          paddingBottom: Math.max(insets.bottom, 10),
+          paddingTop: 10,
           elevation: 0,
           shadowColor: '#0F172A',
-          shadowOffset: { width: 0, height: -2 },
-          shadowOpacity: 0.06,
-          shadowRadius: 12,
+          shadowOffset: { width: 0, height: -3 },
+          shadowOpacity: 0.08,
+          shadowRadius: 16,
         },
-        tabBarActiveTintColor: '#29b0f9',
+        tabBarActiveTintColor: '#0EA5E9',
         tabBarInactiveTintColor: '#94A3B8',
+        tabBarItemStyle: {
+          paddingVertical: 2,
+        },
         tabBarLabelStyle: {
           fontSize: 11,
-          fontWeight: '600',
-          letterSpacing: 0.3,
+          fontWeight: '700',
+          letterSpacing: 0.2,
         },
       }}
     >

@@ -1,13 +1,17 @@
-import React, { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View, Image, TouchableOpacity, Animated, TextInput, Platform, Alert } from 'react-native';
+import React, { useEffect, useState, useRef } from 'react';
+import { ScrollView, StyleSheet, Text, View, Image, TouchableOpacity, Platform, Alert, Animated, Modal, Linking, RefreshControl } from 'react-native';
+import { useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Sharing from 'expo-sharing';
 import { documentDirectory, writeAsStringAsync } from 'expo-file-system/legacy';
-import { Clock3, CalendarDays, Briefcase, ChevronsDown, ChevronsUp, Database, Clock, Filter, Search, Download, X } from 'lucide-react-native';
+import { Clock3, CalendarDays, Briefcase, ChevronsDown, ChevronsUp, Clock, ListFilter, Download, FileSpreadsheet, FileText, X } from 'lucide-react-native';
 import { useAttendanceStore } from '@/store/attendanceStore';
 import SessionRow from '@/components/SessionRow';
 import MonthFilter from '@/components/MonthFilter';
+import { Ionicons } from '@expo/vector-icons';
+
+const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 
 function formatDuration(minutes: number): string {
   const h = Math.floor(minutes / 60);
@@ -33,11 +37,26 @@ function getMonthYearFromDate(dateStr: string): string {
 }
 
 export default function HistoryScreen() {
-  const { allGrouped, loadAll, loadDemoData } = useAttendanceStore();
+  const { allGrouped, loadAll, loadMonthly, places, currentPlaceId, deleteSession, updateSession } = useAttendanceStore();
+  const currentPlaceName = places.find((p) => p.id === currentPlaceId)?.name || 'Default';
   const currentMonthKey = getCurrentMonthKey();
 
-  // Default: show all months, only current month expanded
   const [expandedMonths, setExpandedMonths] = useState<string[]>([currentMonthKey]);
+
+  // Group by month - Memoized to prevent stability issues (fixes blank records)
+  const groupedByMonth = React.useMemo(() => {
+    const grouped: { [monthKey: string]: typeof allGrouped } = {};
+    allGrouped.forEach((group) => {
+      const monthKey = group.date.substring(0, 7); // YYYY-MM
+      if (!grouped[monthKey]) grouped[monthKey] = [];
+      grouped[monthKey].push(group);
+    });
+    return grouped;
+  }, [allGrouped]);
+
+  const monthKeys = React.useMemo(() =>
+    Object.keys(groupedByMonth).sort((a, b) => b.localeCompare(a)),
+    [groupedByMonth]);
 
   // Month filter state - null means no filter (show all)
   const now = new Date();
@@ -45,49 +64,183 @@ export default function HistoryScreen() {
   const [filterMonth, setFilterMonth] = useState<number | null>(null);
   const [showMonthFilter, setShowMonthFilter] = useState(false);
 
-  // Search state
-  const [isSearchActive, setIsSearchActive] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  // Export format picker state
+  const [showExportPicker, setShowExportPicker] = useState(false);
+  const [pendingExportMonth, setPendingExportMonth] = useState<{ monthKey: string; monthData: any[] } | null>(null);
+  const exportAnim = useRef(new Animated.Value(0)).current;
 
+  // Animate export picker
   useEffect(() => {
-    loadAll();
-  }, []);
+    if (showExportPicker) {
+      Animated.timing(exportAnim, {
+        toValue: 1,
+        duration: 250,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(exportAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [showExportPicker]);
 
-  const handleLoadDemo = async () => {
-    await loadDemoData();
+  // Export format handler
+  const handleExport = (format: 'csv' | 'txt' | 'whatsapp'): void => {
+    if (!pendingExportMonth) return;
+    const { monthKey, monthData } = pendingExportMonth;
+    const [year, monthNum] = monthKey.split('-');
+    const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    const monthDisplay = months[parseInt(monthNum) - 1];
+
+    let content = '';
+    let fileName = '';
+    let mimeType = 'text/plain';
+    let uti = 'public.plain-text';
+
+    if (format === 'csv') {
+      content = `Absensi ${monthDisplay} ${year} - ${currentPlaceName}\n\n`;
+      fileName = `Absensi_${monthDisplay}_${year}_${currentPlaceName.replace(/\s+/g, '_')}.csv`;
+      mimeType = 'text/csv';
+      uti = 'public.comma-separated-values-text';
+
+      // Sort by date ascending (1-31)
+      const sortedData = [...monthData].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+      sortedData.forEach((group) => {
+        const dateObj = new Date(group.date);
+        const dayName = days[dateObj.getDay()];
+        const [y, m, d] = group.date.split('-');
+        const formattedDate = `${d}/${m}/${y}`;
+        const sessionPairs = group.sessions.map((session: any) => {
+          const inTime = session.in_time;
+          const outTime = session.out_time || '??';
+          return `(${inTime} - ${outTime})`;
+        });
+        content += `${dayName} ${formattedDate}: ${sessionPairs.join(' ')}\n`;
+      });
+    } else if (format === 'txt') {
+      content = `Absensi ${monthDisplay} ${year} - ${currentPlaceName}\n\n`;
+      fileName = `Absensi_${monthDisplay}_${year}_${currentPlaceName.replace(/\s+/g, '_')}.txt`;
+
+      // Sort by date ascending (1-31)
+      const sortedData = [...monthData].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+      sortedData.forEach((group) => {
+        const dateObj = new Date(group.date);
+        const dayName = days[dateObj.getDay()];
+        const [y, m, d] = group.date.split('-');
+        const formattedDate = `${d}/${m}/${y}`;
+        const sessionPairs = group.sessions.map((session: any) => {
+          const inTime = session.in_time;
+          const outTime = session.out_time || '??';
+          return `(${inTime} - ${outTime})`;
+        });
+        content += `${dayName} ${formattedDate}:\n${sessionPairs.join(' ')}\n\n`;
+      });
+
+      content += `Total: ${sortedData.length} hari\n`;
+      content += `Staffly App`;
+    } else if (format === 'whatsapp') {
+      content = `*Absensi ${monthDisplay} ${year}*\n📍 *${currentPlaceName}*\n\n`;
+
+      // Sort by date ascending (1-31)
+      const sortedData = [...monthData].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+      sortedData.forEach((group) => {
+        const dateObj = new Date(group.date);
+        const dayName = days[dateObj.getDay()];
+        const [y, m, d] = group.date.split('-');
+        const formattedDate = `${d}/${m}/${y}`;
+        const sessionPairs = group.sessions.map((session: any) => {
+          const inTime = session.in_time;
+          const outTime = session.out_time || '??';
+          return `(${inTime} - ${outTime})`;
+        });
+        content += `*${dayName}* ${formattedDate}:\n${sessionPairs.join(' ')}\n\n`;
+      });
+
+      content += `*Total: ${sortedData.length} hari*\n`;
+      content += `_Staffly App_`;
+
+      if (Platform.OS === 'web') {
+        const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(content)}`;
+        window.open(whatsappUrl, '_blank');
+        setShowExportPicker(false);
+        setPendingExportMonth(null);
+        return;
+      } else {
+        Sharing.shareAsync('' as any, {
+          dialogTitle: 'Share ke WhatsApp',
+        }).catch(() => {
+          const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(content)}`;
+          Linking.openURL(whatsappUrl).catch(() => {
+            Alert.alert('Info', 'WhatsApp tidak terinstall atau tidak dapat dibuka');
+          });
+        });
+        setShowExportPicker(false);
+        setPendingExportMonth(null);
+        return;
+      }
+    }
+
+    if (Platform.OS === 'web') {
+      const blob = new Blob([content], { type: `${mimeType};charset=utf-8;` });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      link.click();
+      URL.revokeObjectURL(url);
+    } else {
+      const fileUri = (documentDirectory || '') + fileName;
+      writeAsStringAsync(fileUri, content).then(() => {
+        Sharing.shareAsync(fileUri, {
+          mimeType: mimeType,
+          dialogTitle: `Share Absensi ${monthDisplay} ${year}`,
+          UTI: uti
+        });
+      });
+    }
+
+    setShowExportPicker(false);
+    setPendingExportMonth(null);
   };
 
-  // Group by month
-  const groupedByMonth: { [monthKey: string]: typeof allGrouped } = {};
-  allGrouped.forEach((group) => {
-    const monthKey = group.date.substring(0, 7); // YYYY-MM
-    if (!groupedByMonth[monthKey]) groupedByMonth[monthKey] = [];
-    groupedByMonth[monthKey].push(group);
-  });
+  const [refreshing, setRefreshing] = useState(false);
 
-  const monthKeys = Object.keys(groupedByMonth).sort((a, b) => b.localeCompare(a));
+  const onRefresh = React.useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([loadAll(), loadMonthly()]);
+    setRefreshing(false);
+  }, [loadAll, loadMonthly]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      loadAll();
+      loadMonthly();
+    }, [loadAll, loadMonthly])
+  );
 
   // Determine which months to show
   const isFilterActive = filterYear !== null && filterMonth !== null;
   const allMonthKeys = isFilterActive
     ? monthKeys.filter((key) => {
-        const [year, month] = key.split('-').map(Number);
-        return year === filterYear && month === (filterMonth ?? 0) + 1;
-      })
-    : monthKeys; // Show all if no filter
+      const [year, month] = key.split('-').map(Number);
+      return year === filterYear && month === (filterMonth ?? 0) + 1;
+    })
+    : monthKeys;
 
-  // When filter is applied, auto-expand the filtered month
   const effectiveExpandedMonths = isFilterActive
-    ? allMonthKeys // All filtered months are expanded
-    : expandedMonths; // Use user toggled state
+    ? allMonthKeys
+    : expandedMonths;
 
-  // Get data to display - if filtered, show that month's data; otherwise show current month data
   const displayMonthKey = isFilterActive && filterYear !== null && filterMonth !== null
     ? `${filterYear}-${String(filterMonth + 1).padStart(2, '0')}`
     : currentMonthKey;
   const displayMonthData = groupedByMonth[displayMonthKey] || [];
 
-  // Calculate totals for display month (filtered or current)
   const displayMonthTotalMinutes = calculateMonthTotalMinutes(displayMonthData);
   const displayTotalDays = displayMonthData.length;
   const displayTotalSessions = displayMonthData.reduce((acc: number, g: { sessions: any[] }) => acc + g.sessions.length, 0);
@@ -119,33 +272,15 @@ export default function HistoryScreen() {
         style={styles.scroll}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#29b0f9']} />
+        }
       >
         <View style={styles.header}>
           <Image source={require('@/assets/images/Staffly.png')} style={styles.logo} />
           <Text style={styles.appName}>Staffly</Text>
 
-          {/* Action Buttons - Right side */}
           <View style={styles.headerActions}>
-            {/* Search Button */}
-            {/* <TouchableOpacity
-              style={[styles.headerActionButton, isSearchActive && styles.headerActionButtonActive]}
-              onPress={() => {
-                setIsSearchActive(!isSearchActive);
-                if (isSearchActive) setSearchQuery('');
-              }}
-              activeOpacity={0.8}
-            >
-              <LinearGradient
-                colors={isSearchActive ? ['#F59E0B', '#D97706'] : ['#6B7280', '#4B5563']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.headerActionGradient}
-              >
-                <Search size={16} color="#FFFFFF" strokeWidth={2} />
-              </LinearGradient>
-            </TouchableOpacity> */}
-
-            {/* Filter Button */}
             <TouchableOpacity
               style={styles.headerFilterButton}
               onPress={() => setShowMonthFilter(true)}
@@ -157,13 +292,13 @@ export default function HistoryScreen() {
                 end={{ x: 1, y: 1 }}
                 style={styles.headerFilterGradient}
               >
-                <Filter size={14} color="#FFFFFF" strokeWidth={2} />
+                <ListFilter size={14} color="#FFFFFF" strokeWidth={2} />
                 <Text style={styles.headerFilterText}>
                   {isFilterActive && filterMonth !== null && filterYear !== null
                     ? (() => {
-                        const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-                        return `${months[filterMonth]} ${filterYear}`;
-                      })()
+                      const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+                      return `${months[filterMonth]} ${filterYear}`;
+                    })()
                     : 'Filter'}
                 </Text>
               </LinearGradient>
@@ -172,7 +307,7 @@ export default function HistoryScreen() {
         </View>
 
         <LinearGradient
-          colors={['#10B981', '#059669']}
+          colors={['#29b0f9', '#10B981']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={styles.totalHoursCard}
@@ -186,9 +321,9 @@ export default function HistoryScreen() {
             <Text style={styles.totalHoursSubtitle}>
               {isFilterActive && filterMonth !== null && filterYear !== null
                 ? (() => {
-                    const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-                    return `${months[filterMonth]} ${filterYear}`;
-                  })()
+                  const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+                  return `${months[filterMonth]} ${filterYear}`;
+                })()
                 : getCurrentMonthYear()}
             </Text>
           </View>
@@ -206,41 +341,6 @@ export default function HistoryScreen() {
           </View>
         </View>
 
-        {/* Search Bar - Below stat cards */}
-        {isSearchActive && (
-          <View style={styles.searchBar}>
-            <LinearGradient
-              colors={['#F59E0B', '#D97706']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.searchBarGradient}
-            >
-              <Search size={18} color="#FFFFFF" strokeWidth={2} />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Cari tanggal (dd/mm/yyyy), bulan, atau tahun..."
-                placeholderTextColor="rgba(255, 255, 255, 0.7)"
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                autoFocus
-              />
-              {searchQuery.length > 0 && (
-                <TouchableOpacity onPress={() => setSearchQuery('')}>
-                  <X size={18} color="#FFFFFF" strokeWidth={2} />
-                </TouchableOpacity>
-              )}
-            </LinearGradient>
-          </View>
-        )}
-
-        {/* Demo Data Button */}
-        {/* {allGrouped.length === 0 && (
-          <TouchableOpacity style={styles.demoButton} onPress={handleLoadDemo}>
-            <Database size={18} color="#64748B" strokeWidth={2} />
-            <Text style={styles.demoButtonText}>Load Demo Data</Text>
-          </TouchableOpacity>
-        )} */}
-
         {allGrouped.length === 0 ? (
           <View style={styles.emptyState}>
             <CalendarDays size={48} color="#CBD5E1" strokeWidth={1.5} />
@@ -251,9 +351,7 @@ export default function HistoryScreen() {
           </View>
         ) : (
           <View style={styles.list}>
-            {/* All Months - Collapsible with gradient */}
             {allMonthKeys.map((monthKey, monthIndex) => {
-              // Use effectiveExpandedMonths for expand state (auto-expanded when filtered)
               const isExpanded = effectiveExpandedMonths.includes(monthKey);
               const monthData = groupedByMonth[monthKey];
               const monthTotalMinutes = calculateMonthTotalMinutes(monthData);
@@ -311,79 +409,13 @@ export default function HistoryScreen() {
                         </View>
                       </View>
                       <View style={styles.headerRightActions}>
-                        {/* Export Button - Only show when expanded */}
                         {isExpanded && (
                           <TouchableOpacity
                             style={[styles.collapsibleArrow, isExpanded && styles.collapsibleArrowActive]}
                             onPress={(e) => {
                               e.stopPropagation();
-                              // Generate CSV content with new format
-                              const monthName = getMonthYearFromDate(monthKey + '-01').replace(' ', '_');
-                              const [year, monthNum] = monthKey.split('-');
-                              const monthDisplay = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'][parseInt(monthNum) - 1];
-
-                              const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-
-                              let csv = `Absensi ${monthDisplay} ${year}\n\n`;
-
-                              monthData.forEach((group) => {
-                                const dateObj = new Date(group.date);
-                                const dayName = days[dateObj.getDay()];
-                                const [y, m, d] = group.date.split('-');
-                                const formattedDate = `${d}/${m}/${y}`;
-
-                                // Build session pairs for this date
-                                const sessionPairs = group.sessions.map((session) => {
-                                  const inTime = session.in_time;
-                                  const outTime = session.out_time || '??';
-                                  return `(${inTime} - ${outTime})`;
-                                });
-
-                                // Format: Day DD/MM/YYYY: (IN - OUT) (IN - OUT)
-                                csv += `${dayName} ${formattedDate}: ${sessionPairs.join(' ')}\n`;
-                              });
-
-                              // Platform-specific file export
-                              const fileName = `Absensi_${monthDisplay}_${year}.csv`;
-
-                              if (Platform.OS === 'web') {
-                                // Web: Use Web Share API or download
-                                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-                                if (navigator.share && navigator.canShare && typeof navigator.canShare === 'function') {
-                                  const file = new File([blob], fileName, { type: 'text/csv' });
-                                  navigator.share({
-                                    title: `Absensi ${monthDisplay} ${year}`,
-                                    text: 'Data absensi dalam format CSV',
-                                    files: [file]
-                                  }).catch(() => {
-                                    // Fallback to download
-                                    const url = URL.createObjectURL(blob);
-                                    const link = document.createElement('a');
-                                    link.href = url;
-                                    link.download = fileName;
-                                    link.click();
-                                    URL.revokeObjectURL(url);
-                                  });
-                                } else {
-                                  // Direct download
-                                  const url = URL.createObjectURL(blob);
-                                  const link = document.createElement('a');
-                                  link.href = url;
-                                  link.download = fileName;
-                                  link.click();
-                                  URL.revokeObjectURL(url);
-                                }
-                              } else {
-                                // Mobile: Use expo-sharing with legacy API
-                                const fileUri = (documentDirectory || '') + fileName;
-                                writeAsStringAsync(fileUri, csv).then(() => {
-                                  Sharing.shareAsync(fileUri, {
-                                    mimeType: 'text/csv',
-                                    dialogTitle: `Share Absensi ${monthDisplay} ${year}`,
-                                    UTI: 'public.comma-separated-values-text'
-                                  });
-                                });
-                              }
+                              setPendingExportMonth({ monthKey, monthData });
+                              setShowExportPicker(true);
                             }}
                             activeOpacity={0.8}
                           >
@@ -405,10 +437,12 @@ export default function HistoryScreen() {
                     <View style={styles.collapsibleContent}>
                       {monthData.map((group, index) => (
                         <SessionRow
-                          key={group.date}
+                          key={`${group.date}-${index}`}
                           date={group.date}
                           sessions={group.sessions}
                           isFirstInMonth={index === 0}
+                          onDeleteSession={deleteSession}
+                          onUpdateSession={updateSession}
                         />
                       ))}
                     </View>
@@ -420,27 +454,106 @@ export default function HistoryScreen() {
         )}
       </ScrollView>
 
-      {/* Month Filter Modal */}
       <MonthFilter
         visible={showMonthFilter}
-        onClose={() => {
-          // Just close the modal without resetting filter
-          setShowMonthFilter(false);
-        }}
+        onClose={() => setShowMonthFilter(false)}
         onSelectMonth={(year, month) => {
           setFilterYear(year);
           setFilterMonth(month);
         }}
         onClearFilter={() => {
-          // Reset filter to show all months
           setFilterYear(null);
           setFilterMonth(null);
-          // Reset expanded to default (current month only)
           setExpandedMonths([currentMonthKey]);
         }}
         selectedYear={filterYear ?? now.getFullYear()}
         selectedMonth={filterMonth ?? now.getMonth()}
       />
+
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={showExportPicker}
+        onRequestClose={() => setShowExportPicker(false)}
+      >
+        <View style={styles.exportPickerOverlay}>
+          <Animated.View style={[styles.exportPickerContainer, { opacity: exportAnim }]}>
+            <LinearGradient
+              colors={['#29b0f9', '#10B981']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.exportPickerHeader}
+            >
+              <Text style={styles.exportPickerTitle}>Format Export</Text>
+              <Text style={styles.exportPickerSubtitle}>Pilih format</Text>
+            </LinearGradient>
+
+            <View style={styles.exportPickerContent}>
+              <TouchableOpacity
+                style={styles.exportPickerOption}
+                onPress={() => handleExport('whatsapp')}
+                activeOpacity={0.8}
+              >
+                <LinearGradient
+                  colors={['#25D366', '#128C7E']}
+                  style={styles.exportOptionIcon}
+                >
+                  <Ionicons name="logo-whatsapp" size={30} color="#FFFFFF" />
+                </LinearGradient>
+                <View style={styles.exportOptionText}>
+                  <Text style={styles.exportOptionTitle}>WhatsApp</Text>
+                  <Text style={styles.exportOptionDesc}>Share ke WhatsApp</Text>
+                </View>
+                <ChevronsDown size={20} color="#64748B" style={{ transform: [{ rotate: '-90deg' }] }} />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.exportPickerOption}
+                onPress={() => handleExport('csv')}
+                activeOpacity={0.8}
+              >
+                <LinearGradient
+                  colors={['#29b0f9', '#0ea5e9']}
+                  style={styles.exportOptionIcon}
+                >
+                  <FileSpreadsheet size={28} color="#FFFFFF" strokeWidth={2} />
+                </LinearGradient>
+                <View style={styles.exportOptionText}>
+                  <Text style={styles.exportOptionTitle}>CSV (Excel)</Text>
+                  <Text style={styles.exportOptionDesc}>Format spreadsheet untuk Excel</Text>
+                </View>
+                <ChevronsDown size={20} color="#64748B" style={{ transform: [{ rotate: '-90deg' }] }} />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.exportPickerOption}
+                onPress={() => handleExport('txt')}
+                activeOpacity={0.8}
+              >
+                <LinearGradient
+                  colors={['#10B981', '#059669']}
+                  style={styles.exportOptionIcon}
+                >
+                  <FileText size={28} color="#FFFFFF" strokeWidth={2} />
+                </LinearGradient>
+                <View style={styles.exportOptionText}>
+                  <Text style={styles.exportOptionTitle}>TXT (Text)</Text>
+                  <Text style={styles.exportOptionDesc}>Format teks universal</Text>
+                </View>
+                <ChevronsDown size={20} color="#64748B" style={{ transform: [{ rotate: '-90deg' }] }} />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.exportPickerCancel}
+                onPress={() => setShowExportPicker(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.exportPickerCancelText}>Batal</Text>
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -461,12 +574,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 20, // 🔥 TAMBAH INI
+    paddingTop: 20,
     marginBottom: 20,
   },
-
-  logo: { width: 40, height: 40 },
-
+  logo: { width: 40, height: 40, borderRadius: 12 },
   appName: {
     fontSize: 26,
     fontWeight: '800',
@@ -474,89 +585,32 @@ const styles = StyleSheet.create({
     flex: 1,
     marginHorizontal: 10,
   },
-
-  clockBadge: {
+  headerActions: {
     flexDirection: 'row',
-    gap: 5,
-    backgroundColor: '#F1F5F9',
-    padding: 8,
-    borderRadius: 20,
+    gap: 10,
   },
-
-  clockText: { fontWeight: '600', color: '#64748B' },
-
-  title: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#0F172A',
-    letterSpacing: -0.5,
+  headerFilterButton: {
+    borderRadius: 24,
+    overflow: 'hidden',
   },
-  subtitle: {
-    fontSize: 14,
-    color: '#ffffff',
-    fontWeight: '500',
-    marginTop: 2,
-  },
-  statsRow: {
+  headerFilterGradient: {
     flexDirection: 'row',
-    gap: 12,
-    marginBottom: 24,
-  },
-  statCardTop: {
-    flex: 1,
-    backgroundColor: '#29b0f9',
-    borderRadius: 16,
-    padding: 16,
     alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     gap: 6,
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
-    marginBottom: 24,
   },
-  statCard: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    alignItems: 'center',
-    gap: 6,
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
-  },
-  statNum: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#0F172A',
-    letterSpacing: -0.5,
-  },
-  statLabel: {
+  headerFilterText: {
+    color: '#FFFFFF',
     fontSize: 12,
-    fontWeight: '600',
-    color: '#94A3B8',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
+    fontWeight: '700',
   },
   totalHoursCard: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 20,
-    borderRadius: 16,
-    marginBottom: 14,
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 4,
+    borderRadius: 24,
+    marginBottom: 20,
   },
   totalHoursIconContainer: {
     width: 48,
@@ -580,71 +634,64 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '800',
     color: '#FFFFFF',
-    letterSpacing: -0.5,
-    marginBottom: 2,
   },
   totalHoursSubtitle: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: 'rgba(255, 255, 255, 0.7)',
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.8)',
   },
-  list: {
-    gap: 0,
-  },
-
-  // Month Header Styles
-  monthHeader: {
+  statsRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-    marginTop: 8,
+    gap: 12,
+    marginBottom: 24,
   },
-  monthTitle: {
-    fontSize: 16,
-    fontWeight: '700',
+  statCard: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 16,
+    alignItems: 'center',
+    gap: 6,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  statNum: {
+    fontSize: 24,
+    fontWeight: '800',
     color: '#0F172A',
   },
-  monthBadge: {
-    backgroundColor: '#29b0f9',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginTop: -10,
+  statLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748B',
   },
-  monthBadgeActive: {
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
-  },
-  monthBadgeText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  monthBadgeTextActive: {
-    color: '#FFFFFF',
-  },
-  collapsibleTitleRow: {
-    flexDirection: 'row',
+  emptyState: {
     alignItems: 'center',
-    gap: 10,
+    justifyContent: 'center',
+    paddingVertical: 60,
+    gap: 12,
   },
-
-  // Previous Months Divider
-  previousMonthsDivider: {
-    // height: 1,
-    // backgroundColor: '#E2E8F0',
-    // marginVertical: 20,
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#475569',
   },
-
-  // Collapsible Month Styles - Premium Gradient
+  emptySubtitle: {
+    fontSize: 14,
+    color: '#94A3B8',
+    textAlign: 'center',
+    paddingHorizontal: 40,
+  },
+  list: {
+    gap: 16,
+  },
   collapsibleMonth: {
-    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
     overflow: 'hidden',
-    shadowColor: '#29b0f9',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 4,
+    marginBottom: 4,
   },
   collapsibleMonthMargin: {
     marginTop: 12,
@@ -658,172 +705,139 @@ const styles = StyleSheet.create({
   collapsibleHeaderLeft: {
     flex: 1,
   },
+  collapsibleTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
   collapsibleMonthTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#1E293B',
-    marginBottom: 8,
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0F172A',
   },
   collapsibleMonthTitleActive: {
     color: '#FFFFFF',
   },
+  monthBadge: {
+    backgroundColor: '#E0F2FE',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+  },
+  monthBadgeActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  monthBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#0369A1',
+  },
+  monthBadgeTextActive: {
+    color: '#FFFFFF',
+  },
   collapsibleStatsRow: {
     flexDirection: 'row',
-    gap: 16,
+    gap: 12,
   },
   collapsibleStatItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 4,
   },
   collapsibleMonthStats: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#6B7280',
-  },
-  collapsibleMonthStatsActive: {
-    color: '#DBEAFE',
-  },
-  collapsibleArrow: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#29b0f9',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  collapsibleArrowActive: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  collapsibleContent: {
-    backgroundColor: '#FFFFFF',
-  },
-
-  demoButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#F1F5F9',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 12,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  demoButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
     color: '#64748B',
   },
-
-  headerFilterButton: {
-    borderRadius: 20,
-    overflow: 'hidden',
-    shadowColor: '#29b0f9',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 2,
+  collapsibleMonthStatsActive: {
+    color: 'rgba(255, 255, 255, 0.9)',
   },
-  headerFilterGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-  },
-  headerFilterText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-
-  headerActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  headerActionButton: {
-    borderRadius: 20,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  headerActionButtonActive: {
-    shadowColor: '#F59E0B',
-    shadowOpacity: 0.3,
-  },
-  headerActionGradient: {
-    width: 30,
-    height: 30,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  searchBar: {
-    marginBottom: 16,
-    borderRadius: 12,
-    overflow: 'hidden',
-    shadowColor: '#F59E0B',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  searchBarGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 14,
-    color: '#FFFFFF',
-    fontWeight: '500',
-    padding: 0,
-  },
-
   headerRightActions: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  exportButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  collapsibleArrow: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },
-
-  emptyState: {
+  collapsibleArrowActive: {
+    // backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  collapsibleContent: {
+    padding: 0,
+    gap: 0,
+  },
+  exportPickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  exportPickerContainer: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    overflow: 'hidden',
+  },
+  exportPickerHeader: {
+    paddingVertical: 20,
     alignItems: 'center',
-    paddingTop: 60,
-    gap: 10,
   },
-  emptyTitle: {
-    fontSize: 18,
+  exportPickerTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  exportPickerSubtitle: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontWeight: '600',
+  },
+  exportPickerContent: {
+    padding: 24,
+    gap: 16,
+  },
+  exportPickerOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 18,
+    gap: 12,
+  },
+  exportOptionIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  exportOptionText: {
+    flex: 1,
+  },
+  exportOptionTitle: {
+    fontSize: 16,
     fontWeight: '700',
-    color: '#94A3B8',
-    marginTop: 8,
+    color: '#1E293B',
   },
-  emptySubtitle: {
-    fontSize: 14,
-    color: '#CBD5E1',
-    textAlign: 'center',
-    lineHeight: 20,
-    paddingHorizontal: 20,
+  exportOptionDesc: {
+    fontSize: 12,
+    color: '#64748B',
+  },
+  exportPickerCancel: {
+    marginTop: 8,
+    paddingVertical: 16,
+    alignItems: 'center',
+    borderRadius: 16,
+    backgroundColor: '#F1F5F9',
+  },
+  exportPickerCancelText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#64748B',
   },
 });

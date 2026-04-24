@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import * as SQLite from 'expo-sqlite';
 
 export interface Session {
   id: number;
@@ -6,36 +7,109 @@ export interface Session {
   in_time: string;
   out_time: string | null;
   created_at: number;
+  place_id: string;
+}
+
+export interface Place {
+  id: string;
+  name: string;
+  created_at: number;
 }
 
 type DbImpl = {
-  insertInSession: (date: string, inTime: string) => Promise<number>;
+  insertInSession: (date: string, inTime: string, placeId: string) => Promise<number>;
   updateOutSession: (id: number, outTime: string) => Promise<void>;
-  getSessionsByDate: (date: string) => Promise<Session[]>;
-  getAllDates: () => Promise<string[]>;
-  getSessionsByDateRange: (startDate: string, endDate: string) => Promise<Session[]>;
+  updateSession: (id: number, inTime: string, outTime: string | null) => Promise<void>;
+  getSessionsByDate: (date: string, placeId: string) => Promise<Session[]>;
+  getAllDates: (placeId: string) => Promise<string[]>;
+  getSessionsByDateRange: (startDate: string, endDate: string, placeId: string) => Promise<Session[]>;
+  clearSessionsByPlace: (placeId: string) => Promise<void>;
+  deleteSession: (id: number) => Promise<void>;
+
+  getPlaces: () => Promise<Place[]>;
+  insertPlace: (name: string) => Promise<string>;
+  updatePlaceName: (placeId: string, name: string) => Promise<void>;
+  getCurrentPlaceId: () => Promise<string>;
+  setCurrentPlaceId: (placeId: string) => Promise<void>;
 };
 
 let impl: DbImpl | null = null;
+let implPromise: Promise<DbImpl> | null = null;
 
 async function getImpl(): Promise<DbImpl> {
   if (impl) return impl;
+  if (implPromise) return implPromise;
 
-  if (Platform.OS === 'web') {
-    impl = createWebImpl();
-  } else {
-    impl = await createNativeImpl();
+  implPromise = (async () => {
+    if (Platform.OS === 'web') {
+      return createWebImpl();
+    }
+    return createNativeImpl();
+  })();
+
+  try {
+    impl = await implPromise;
+    return impl;
+  } finally {
+    implPromise = null;
   }
-  return impl;
+}
+
+function shouldRecoverNativeDbError(error: unknown): boolean {
+  if (Platform.OS === 'web') return false;
+  const message = String(error);
+  return (
+    message.includes('NativeDatabase.prepareAsync') ||
+    message.includes('NativeDatabase.constructor') ||
+    message.includes('NullPointerException') ||
+    message.includes('re-opened') ||
+    message.includes('closed') ||
+    message.includes('database is closed')
+  );
+}
+
+let isRecovering = false;
+
+async function withDbRecovery<T>(action: (db: DbImpl) => Promise<T>): Promise<T> {
+  let currentImpl = await getImpl();
+  try {
+    return await action(currentImpl);
+  } catch (error) {
+    if (!shouldRecoverNativeDbError(error) || isRecovering) throw error;
+    
+    isRecovering = true;
+    console.warn('[SQLite] Recoverable native DB error detected, re-opening database...', error);
+    
+    try {
+      impl = null; // Clear singleton
+      implPromise = null;
+      
+      // Artificial delay to let OS release file locks if any
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      const reopenedImpl = await getImpl();
+      return await action(reopenedImpl);
+    } finally {
+      isRecovering = false;
+    }
+  }
 }
 
 function createWebImpl(): DbImpl {
   const KEY = 'staffly_sessions';
+  const PLACES_KEY = 'staffly_places';
+  const CURRENT_PLACE_KEY = 'staffly_current_place';
+  const DEFAULT_PLACE_ID = 'default';
 
   function load(): Session[] {
     try {
       const raw = localStorage.getItem(KEY);
-      return raw ? JSON.parse(raw) : [];
+      const parsed = raw ? (JSON.parse(raw) as Session[]) : [];
+      // Backfill legacy data without place_id
+      return parsed.map((s) => ({
+        ...s,
+        place_id: (s as any).place_id || DEFAULT_PLACE_ID,
+      }));
     } catch {
       return [];
     }
@@ -45,41 +119,116 @@ function createWebImpl(): DbImpl {
     localStorage.setItem(KEY, JSON.stringify(sessions));
   }
 
+  function loadPlaces(): Place[] {
+    try {
+      const raw = localStorage.getItem(PLACES_KEY);
+      const parsed = raw ? (JSON.parse(raw) as Place[]) : [];
+      if (parsed.length === 0) {
+        return [{ id: DEFAULT_PLACE_ID, name: 'Default', created_at: Math.floor(Date.now() / 1000) }];
+      }
+      return parsed;
+    } catch {
+      return [{ id: DEFAULT_PLACE_ID, name: 'Default', created_at: Math.floor(Date.now() / 1000) }];
+    }
+  }
+
+  function savePlaces(places: Place[]) {
+    localStorage.setItem(PLACES_KEY, JSON.stringify(places));
+  }
+
   return {
-    async insertInSession(date, inTime) {
+    async insertInSession(date, inTime, placeId) {
       const sessions = load();
       const id = Date.now();
-      sessions.push({ id, date, in_time: inTime, out_time: null, created_at: Math.floor(Date.now() / 1000) });
+      sessions.push({
+        id,
+        date,
+        in_time: inTime,
+        out_time: null,
+        created_at: Math.floor(Date.now() / 1000),
+        place_id: placeId || DEFAULT_PLACE_ID,
+      });
       save(sessions);
       return id;
     },
     async updateOutSession(id, outTime) {
       const sessions = load();
       const s = sessions.find((x) => x.id === id);
-      if (s) s.out_time = outTime;
+      if (s && !s.out_time) s.out_time = outTime;
       save(sessions);
     },
-    async getSessionsByDate(date) {
+    async updateSession(id, inTime, outTime) {
+      const sessions = load();
+      const s = sessions.find((x) => x.id === id);
+      if (s) {
+        s.in_time = inTime;
+        s.out_time = outTime;
+      }
+      save(sessions);
+    },
+    async getSessionsByDate(date, placeId) {
       return load()
-        .filter((s) => s.date === date)
+        .filter((s) => s.date === date && s.place_id === placeId)
         .sort((a, b) => a.created_at - b.created_at);
     },
-    async getAllDates() {
+    async getAllDates(placeId) {
       const all = load();
-      const dates = [...new Set(all.map((s) => s.date))];
+      const dates = [...new Set(all.filter((s) => s.place_id === placeId).map((s) => s.date))];
       return dates.sort((a, b) => b.localeCompare(a));
     },
-    async getSessionsByDateRange(startDate, endDate) {
+    async getSessionsByDateRange(startDate, endDate, placeId) {
       return load()
-        .filter((s) => s.date >= startDate && s.date <= endDate)
+        .filter((s) => s.date >= startDate && s.date <= endDate && s.place_id === placeId)
         .sort((a, b) => a.created_at - b.created_at);
+    },
+
+    async getPlaces() {
+      const places = loadPlaces();
+      if (places.length === 0) {
+        const fallback = [{ id: DEFAULT_PLACE_ID, name: 'Default', created_at: Math.floor(Date.now() / 1000) }];
+        savePlaces(fallback);
+        return fallback;
+      }
+      return places;
+    },
+    async insertPlace(name) {
+      const places = loadPlaces();
+      const id = String(Date.now());
+      places.push({ id, name, created_at: Math.floor(Date.now() / 1000) });
+      savePlaces(places);
+      return id;
+    },
+    async getCurrentPlaceId() {
+      const current = localStorage.getItem(CURRENT_PLACE_KEY);
+      if (current) return current;
+      localStorage.setItem(CURRENT_PLACE_KEY, DEFAULT_PLACE_ID);
+      return DEFAULT_PLACE_ID;
+    },
+    async setCurrentPlaceId(placeId) {
+      localStorage.setItem(CURRENT_PLACE_KEY, placeId);
+    },
+    async clearSessionsByPlace(placeId) {
+      const sessions = load().filter((s) => s.place_id !== placeId);
+      save(sessions);
+    },
+    async updatePlaceName(placeId, name) {
+      const places = loadPlaces();
+      const place = places.find((p) => p.id === placeId);
+      if (place) {
+        place.name = name;
+        savePlaces(places);
+      }
+    },
+    async deleteSession(id) {
+      const sessions = load().filter((s) => s.id !== id);
+      save(sessions);
     },
   };
 }
 
 async function createNativeImpl(): Promise<DbImpl> {
-  const SQLite = await import('expo-sqlite');
   console.log('[SQLite] Opening database...');
+  const DEFAULT_PLACE_ID = 'default';
   
   // Add retry mechanism for Android
   let db = null;
@@ -88,6 +237,7 @@ async function createNativeImpl(): Promise<DbImpl> {
   
   while (retries > 0 && !db) {
     try {
+      console.log('[SQLite] Attempting to open database. SQLite object keys:', Object.keys(SQLite || {}));
       await new Promise(resolve => setTimeout(resolve, 100));
       db = await SQLite.openDatabaseAsync('staffly.db');
       console.log('[SQLite] Database opened, retries left:', retries);
@@ -108,9 +258,54 @@ async function createNativeImpl(): Promise<DbImpl> {
   retries = 3;
   while (retries > 0) {
     try {
-      await db.runAsync(
-        'CREATE TABLE IF NOT EXISTS sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, in_time TEXT NOT NULL, out_time TEXT, created_at INTEGER)'
-      );
+      // Increased delay before initialization
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      // Use execAsync for multiple schema changes
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS sessions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, 
+          date TEXT NOT NULL, 
+          in_time TEXT NOT NULL, 
+          out_time TEXT, 
+          created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')), 
+          place_id TEXT
+        );
+        CREATE TABLE IF NOT EXISTS places (
+          id TEXT PRIMARY KEY NOT NULL, 
+          name TEXT NOT NULL, 
+          created_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS meta (
+          key TEXT PRIMARY KEY NOT NULL, 
+          value TEXT
+        );
+      `);
+
+      // Migration: add place_id if older DB
+      try {
+        await db.runAsync('ALTER TABLE sessions ADD COLUMN place_id TEXT');
+      } catch { /* ignore if already exists */ }
+      
+      await db.runAsync('UPDATE sessions SET place_id = ? WHERE place_id IS NULL', [DEFAULT_PLACE_ID]);
+      await db.runAsync("UPDATE sessions SET created_at = strftime('%s','now') WHERE created_at IS NULL");
+
+      // Ensure default place exists
+      const existingDefault = await db.getAllAsync<{ id: string }>('SELECT id FROM places WHERE id = ?', [DEFAULT_PLACE_ID]);
+      if (!existingDefault || existingDefault.length === 0) {
+        await db.runAsync('INSERT INTO places (id, name, created_at) VALUES (?, ?, ?)', [
+          DEFAULT_PLACE_ID,
+          'Default',
+          Math.floor(Date.now() / 1000),
+        ]);
+      }
+
+      // Ensure current place meta exists
+      const currentRows = await db.getAllAsync<{ value: string }>('SELECT value FROM meta WHERE key = ?', ['current_place_id']);
+      if (!currentRows || currentRows.length === 0 || !currentRows[0]?.value) {
+        await db.runAsync('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', ['current_place_id', DEFAULT_PLACE_ID]);
+      }
+
       console.log('[SQLite] Table created');
       break;
     } catch (e) {
@@ -122,11 +317,11 @@ async function createNativeImpl(): Promise<DbImpl> {
   }
 
     return {
-      async insertInSession(date, inTime) {
+      async insertInSession(date, inTime, placeId) {
         try {
           const result = await db.runAsync(
-            'INSERT INTO sessions (date, in_time) VALUES (?, ?)',
-            [date, inTime]
+            'INSERT INTO sessions (date, in_time, created_at, place_id) VALUES (?, ?, ?, ?)',
+            [date, inTime, Math.floor(Date.now() / 1000), placeId || DEFAULT_PLACE_ID]
           );
           console.log('[SQLite] Insert success, ID:', result.lastInsertRowId);
           return result.lastInsertRowId;
@@ -137,18 +332,27 @@ async function createNativeImpl(): Promise<DbImpl> {
       },
       async updateOutSession(id, outTime) {
         try {
-          await db.runAsync('UPDATE sessions SET out_time = ? WHERE id = ?', [outTime, id]);
+          await db.runAsync('UPDATE sessions SET out_time = ? WHERE id = ? AND out_time IS NULL', [outTime, id]);
           console.log('[SQLite] Update success');
         } catch (e) {
           console.error('[SQLite] Update error:', e);
           throw e;
         }
       },
-      async getSessionsByDate(date) {
+      async updateSession(id, inTime, outTime) {
+        try {
+          await db.runAsync('UPDATE sessions SET in_time = ?, out_time = ? WHERE id = ?', [inTime, outTime, id]);
+          console.log('[SQLite] Update session success');
+        } catch (e) {
+          console.error('[SQLite] Update session error:', e);
+          throw e;
+        }
+      },
+      async getSessionsByDate(date, placeId) {
         try {
           const rows = await db.getAllAsync<Session>(
-            'SELECT * FROM sessions WHERE date = ? ORDER BY created_at ASC',
-            [date]
+            'SELECT * FROM sessions WHERE date = ? AND place_id = ? ORDER BY created_at ASC',
+            [date, placeId]
           );
           return rows || [];
         } catch (e) {
@@ -156,10 +360,11 @@ async function createNativeImpl(): Promise<DbImpl> {
           return [];
         }
       },
-      async getAllDates() {
+      async getAllDates(placeId) {
         try {
           const rows = await db.getAllAsync<{ date: string }>(
-            'SELECT DISTINCT date FROM sessions ORDER BY date DESC'
+            'SELECT DISTINCT date FROM sessions WHERE place_id = ? ORDER BY date DESC',
+            [placeId]
           );
           return (rows || []).map((r) => r.date);
         } catch (e) {
@@ -167,11 +372,11 @@ async function createNativeImpl(): Promise<DbImpl> {
           return [];
         }
       },
-      async getSessionsByDateRange(startDate, endDate) {
+      async getSessionsByDateRange(startDate, endDate, placeId) {
         try {
           const rows = await db.getAllAsync<Session>(
-            'SELECT * FROM sessions WHERE date >= ? AND date <= ? ORDER BY created_at ASC',
-            [startDate, endDate]
+            'SELECT * FROM sessions WHERE date >= ? AND date <= ? AND place_id = ? ORDER BY created_at ASC',
+            [startDate, endDate, placeId]
           );
           return rows || [];
         } catch (e) {
@@ -179,41 +384,108 @@ async function createNativeImpl(): Promise<DbImpl> {
           return [];
         }
       },
+
+      async getPlaces() {
+        try {
+          const rows = await db.getAllAsync<Place>('SELECT * FROM places ORDER BY created_at ASC');
+          return rows || [];
+        } catch (e) {
+          console.error('[SQLite] Get places error:', e);
+          return [{ id: DEFAULT_PLACE_ID, name: 'Default', created_at: Math.floor(Date.now() / 1000) }];
+        }
+      },
+      async insertPlace(name) {
+        const id = String(Date.now());
+        try {
+          await db.runAsync('INSERT INTO places (id, name, created_at) VALUES (?, ?, ?)', [
+            id,
+            name,
+            Math.floor(Date.now() / 1000),
+          ]);
+          return id;
+        } catch (e) {
+          console.error('[SQLite] Insert place error:', e);
+          throw e;
+        }
+      },
+      async getCurrentPlaceId() {
+        try {
+          const rows = await db.getAllAsync<{ value: string }>('SELECT value FROM meta WHERE key = ?', ['current_place_id']);
+          const value = rows?.[0]?.value;
+          return value || DEFAULT_PLACE_ID;
+        } catch (e) {
+          console.error('[SQLite] Get current place error:', e);
+          return DEFAULT_PLACE_ID;
+        }
+      },
+      async setCurrentPlaceId(placeId) {
+        try {
+          await db.runAsync('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', ['current_place_id', placeId]);
+        } catch (e) {
+          console.error('[SQLite] Set current place error:', e);
+          throw e;
+        }
+      },
+      async clearSessionsByPlace(placeId) {
+        try {
+          await db.runAsync('DELETE FROM sessions WHERE place_id = ?', [placeId]);
+        } catch (e) {
+          console.error('[SQLite] Clear sessions error:', e);
+          throw e;
+        }
+      },
+      async updatePlaceName(placeId, name) {
+        try {
+          await db.runAsync('UPDATE places SET name = ? WHERE id = ?', [name, placeId]);
+        } catch (e) {
+          console.error('[SQLite] Update place name error:', e);
+          throw e;
+        }
+      },
+      async deleteSession(id) {
+        try {
+          await db.runAsync('DELETE FROM sessions WHERE id = ?', [id]);
+          console.log('[SQLite] Delete session success');
+        } catch (e) {
+          console.error('[SQLite] Delete session error:', e);
+          throw e;
+        }
+      },
     };
 }
 
-export async function insertInSession(date: string, inTime: string): Promise<number> {
-  return (await getImpl()).insertInSession(date, inTime);
+export async function insertInSession(date: string, inTime: string, placeId: string): Promise<number> {
+  return withDbRecovery((db) => db.insertInSession(date, inTime, placeId));
 }
 
 export async function updateOutSession(id: number, outTime: string): Promise<void> {
-  return (await getImpl()).updateOutSession(id, outTime);
+  return withDbRecovery((db) => db.updateOutSession(id, outTime));
 }
 
-export async function getSessionsByDate(date: string): Promise<Session[]> {
-  return (await getImpl()).getSessionsByDate(date);
+export async function getSessionsByDate(date: string, placeId: string): Promise<Session[]> {
+  return withDbRecovery((db) => db.getSessionsByDate(date, placeId));
 }
 
-export async function getAllDates(): Promise<string[]> {
-  return (await getImpl()).getAllDates();
+export async function getAllDates(placeId: string): Promise<string[]> {
+  return withDbRecovery((db) => db.getAllDates(placeId));
 }
 
-export async function getSessionsByDateRange(startDate: string, endDate: string): Promise<Session[]> {
-  return (await getImpl()).getSessionsByDateRange(startDate, endDate);
+export async function getSessionsByDateRange(startDate: string, endDate: string, placeId: string): Promise<Session[]> {
+  return withDbRecovery((db) => db.getSessionsByDateRange(startDate, endDate, placeId));
 }
 
-export async function getSessionsGroupedByDate(): Promise<{ date: string; sessions: Session[] }[]> {
-  const dates = await getAllDates();
+export async function getSessionsGroupedByDate(placeId: string): Promise<{ date: string; sessions: Session[] }[]> {
+  const dates = await getAllDates(placeId);
   const result = [];
   for (const date of dates) {
-    const sessions = await getSessionsByDate(date);
+    const sessions = await getSessionsByDate(date, placeId);
     result.push({ date, sessions });
   }
   return result;
 }
 
-export async function getSessionsGroupedByDateRange(startDate: string, endDate: string): Promise<{ date: string; sessions: Session[] }[]> {
-  const sessions = await getSessionsByDateRange(startDate, endDate);
+export async function getSessionsGroupedByDateRange(startDate: string, endDate: string, placeId: string): Promise<{ date: string; sessions: Session[] }[]> {
+  const sessions = await getSessionsByDateRange(startDate, endDate, placeId);
   const grouped: { [date: string]: Session[] } = {};
   for (const s of sessions) {
     if (!grouped[s.date]) grouped[s.date] = [];
@@ -221,6 +493,38 @@ export async function getSessionsGroupedByDateRange(startDate: string, endDate: 
   }
   const dates = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
   return dates.map((date) => ({ date, sessions: grouped[date] }));
+}
+
+export async function getPlaces(): Promise<Place[]> {
+  return withDbRecovery((db) => db.getPlaces());
+}
+
+export async function insertPlace(name: string): Promise<string> {
+  return withDbRecovery((db) => db.insertPlace(name));
+}
+
+export async function getCurrentPlaceId(): Promise<string> {
+  return withDbRecovery((db) => db.getCurrentPlaceId());
+}
+
+export async function setCurrentPlaceId(placeId: string): Promise<void> {
+  return withDbRecovery((db) => db.setCurrentPlaceId(placeId));
+}
+
+export async function clearSessionsByPlace(placeId: string): Promise<void> {
+  return withDbRecovery((db) => db.clearSessionsByPlace(placeId));
+}
+
+export async function deleteSession(id: number): Promise<void> {
+  return withDbRecovery((db) => db.deleteSession(id));
+}
+
+export async function updatePlaceName(placeId: string, name: string): Promise<void> {
+  return withDbRecovery((db) => db.updatePlaceName(placeId, name));
+}
+
+export async function updateSession(id: number, inTime: string, outTime: string | null): Promise<void> {
+  return withDbRecovery((db) => db.updateSession(id, inTime, outTime));
 }
 
 export async function initDatabase(): Promise<void> {

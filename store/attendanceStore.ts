@@ -1,11 +1,20 @@
 import { create } from 'zustand';
 import {
   Session,
+  Place,
   getSessionsByDate,
   insertInSession,
   updateOutSession,
   getSessionsGroupedByDate,
   getSessionsGroupedByDateRange,
+  getPlaces,
+  insertPlace,
+  updatePlaceName,
+  clearSessionsByPlace,
+  deleteSession as deleteSessionFromDb,
+  getCurrentPlaceId,
+  setCurrentPlaceId,
+  updateSession as updateSessionInDb,
 } from '@/lib/database';
 
 function getTodayDate(): string {
@@ -56,83 +65,160 @@ export function calculateTotalHours(sessions: { date: string; sessions: Session[
 }
 
 interface AttendanceState {
+  places: Place[];
+  currentPlaceId: string;
   todaySessions: Session[];
   allGrouped: { date: string; sessions: Session[] }[];
   monthlyGrouped: { date: string; sessions: Session[] }[];
   monthlyTotalHours: number;
   loading: boolean;
+  loadPlaces: () => Promise<void>;
+  addPlace: (name: string) => Promise<void>;
+  renamePlace: (placeId: string, name: string) => Promise<void>;
+  setCurrentPlace: (placeId: string) => Promise<void>;
+  clearCurrentPlaceData: () => Promise<void>;
+  deleteSession: (sessionId: number) => Promise<void>;
   loadToday: () => Promise<void>;
   loadAll: () => Promise<void>;
   loadMonthly: () => Promise<void>;
   checkIn: () => Promise<void>;
   checkOut: () => Promise<void>;
+  updateSession: (sessionId: number, inTime: string, outTime: string | null) => Promise<void>;
   hasOpenSession: () => boolean;
   canCheckOut: () => boolean;
   loadDemoData: () => Promise<void>;
 }
 
 export const useAttendanceStore = create<AttendanceState>((set, get) => ({
+  places: [],
+  currentPlaceId: 'default',
   todaySessions: [],
   allGrouped: [],
   monthlyGrouped: [],
   monthlyTotalHours: 0,
   loading: false,
 
+  loadPlaces: async () => {
+    const [places, currentPlaceId] = await Promise.all([getPlaces(), getCurrentPlaceId()]);
+    const effectivePlaceId = currentPlaceId || places[0]?.id || 'default';
+    set({ places, currentPlaceId: effectivePlaceId });
+  },
+
+  addPlace: async (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    await insertPlace(trimmed);
+    await get().loadPlaces();
+  },
+
+  renamePlace: async (placeId: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    await updatePlaceName(placeId, trimmed);
+    await get().loadPlaces();
+  },
+
+  setCurrentPlace: async (placeId: string) => {
+    await setCurrentPlaceId(placeId);
+    set({ currentPlaceId: placeId });
+    await Promise.all([
+      get().loadToday(),
+      get().loadAll(),
+      get().loadMonthly()
+    ]);
+  },
+
+  clearCurrentPlaceData: async () => {
+    const { currentPlaceId } = get();
+    await clearSessionsByPlace(currentPlaceId);
+    await get().loadToday();
+  },
+
+  deleteSession: async (sessionId: number) => {
+    await deleteSessionFromDb(sessionId);
+    await Promise.all([
+      get().loadToday(),
+      get().loadAll(),
+      get().loadMonthly()
+    ]);
+  },
+
   loadToday: async () => {
     set({ loading: true });
-    const today = getTodayDate();
-    const sessions = await getSessionsByDate(today);
-    set({ todaySessions: sessions, loading: false });
+    try {
+      const today = getTodayDate();
+      const { currentPlaceId } = get();
+      const sessions = await getSessionsByDate(today, currentPlaceId);
+      set({ todaySessions: sessions });
+    } finally {
+      set({ loading: false });
+    }
   },
 
   loadAll: async () => {
-    const all = await getSessionsGroupedByDate();
-    set({ allGrouped: all });
+    set({ loading: true });
+    try {
+      const { currentPlaceId } = get();
+      const all = await getSessionsGroupedByDate(currentPlaceId);
+      set({ allGrouped: all });
+    } finally {
+      set({ loading: false });
+    }
   },
 
   loadDemoData: async () => {
     // Generate fake demo data for testing
     const today = new Date();
-    const sessions = [];
-    
+    const { currentPlaceId } = get();
+
     // Generate last 7 days of data
     for (let i = 0; i < 7; i++) {
       const date = new Date(today);
       date.setDate(date.getDate() - i);
       const dateStr = date.toISOString().split('T')[0];
-      
+
       // Skip weekends
       if (date.getDay() === 0 || date.getDay() === 6) continue;
-      
+
       const inTime = '08:00';
       const outTime = '17:00';
-      const id = await insertInSession(dateStr, inTime);
+      const id = await insertInSession(dateStr, inTime, currentPlaceId);
       await updateOutSession(id, outTime);
     }
-    
-    await get().loadToday();
-    await get().loadAll();
-    await get().loadMonthly();
+
+    await Promise.all([
+      get().loadToday(),
+      get().loadAll(),
+      get().loadMonthly()
+    ]);
     console.log('[DemoData] Loaded successfully');
   },
 
   loadMonthly: async () => {
     const { startDate, endDate } = getMonthDateRange();
-    const grouped = await getSessionsGroupedByDateRange(startDate, endDate);
+    const { currentPlaceId } = get();
+    const grouped = await getSessionsGroupedByDateRange(startDate, endDate, currentPlaceId);
     const totalHours = calculateTotalHours(grouped);
     set({ monthlyGrouped: grouped, monthlyTotalHours: totalHours });
   },
 
   checkIn: async () => {
     try {
+      await get().loadToday();
+      if (get().todaySessions.some((s) => !s.out_time)) {
+        throw new Error('Masih ada sesi absen terbuka. Silakan absen keluar terlebih dahulu.');
+      }
       const today = getTodayDate();
       const time = getCurrentTime();
+      const { currentPlaceId } = get();
       console.log('[CheckIn] Starting...', { today, time });
-      const id = await insertInSession(today, time);
+      const id = await insertInSession(today, time, currentPlaceId);
       console.log('[CheckIn] Success, session ID:', id);
-      await get().loadToday();
-      await get().loadAll();
-      await get().loadMonthly();
+      await Promise.all([
+        get().loadToday(),
+        get().loadAll(),
+        get().loadMonthly()
+      ]);
       console.log('[CheckIn] Data reloaded');
     } catch (error) {
       console.error('[CheckIn] Error:', error);
@@ -142,22 +228,38 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
 
   checkOut: async () => {
     try {
+      await get().loadToday();
       const { todaySessions } = get();
       const openSession = todaySessions.find((s) => !s.out_time);
       if (!openSession) {
-        console.log('[CheckOut] No open session found');
-        return;
+        throw new Error('Belum ada sesi masuk yang bisa diakhiri.');
       }
       const time = getCurrentTime();
       console.log('[CheckOut] Starting...', { sessionId: openSession.id, time });
       await updateOutSession(openSession.id, time);
       console.log('[CheckOut] Success');
-      await get().loadToday();
-      await get().loadAll();
-      await get().loadMonthly();
+      await Promise.all([
+        get().loadToday(),
+        get().loadAll(),
+        get().loadMonthly()
+      ]);
       console.log('[CheckOut] Data reloaded');
     } catch (error) {
       console.error('[CheckOut] Error:', error);
+      throw error;
+    }
+  },
+
+  updateSession: async (sessionId: number, inTime: string, outTime: string | null) => {
+    try {
+      await updateSessionInDb(sessionId, inTime, outTime);
+      await Promise.all([
+        get().loadToday(),
+        get().loadAll(),
+        get().loadMonthly()
+      ]);
+    } catch (error) {
+      console.error('[UpdateSession] Error:', error);
       throw error;
     }
   },
