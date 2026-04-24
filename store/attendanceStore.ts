@@ -81,8 +81,8 @@ interface AttendanceState {
   loadToday: () => Promise<void>;
   loadAll: () => Promise<void>;
   loadMonthly: () => Promise<void>;
-  checkIn: () => Promise<void>;
-  checkOut: () => Promise<void>;
+  checkIn: (time?: string) => Promise<void>;
+  checkOut: (time?: string) => Promise<void>;
   updateSession: (sessionId: number, inTime: string, outTime: string | null) => Promise<void>;
   hasOpenSession: () => boolean;
   canCheckOut: () => boolean;
@@ -202,17 +202,17 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
     set({ monthlyGrouped: grouped, monthlyTotalHours: totalHours });
   },
 
-  checkIn: async () => {
+  checkIn: async (time?: string) => {
     try {
       await get().loadToday();
       if (get().todaySessions.some((s) => !s.out_time)) {
         throw new Error('Masih ada sesi absen terbuka. Silakan absen keluar terlebih dahulu.');
       }
       const today = getTodayDate();
-      const time = getCurrentTime();
+      const timeToUse = time || getCurrentTime();
       const { currentPlaceId } = get();
-      console.log('[CheckIn] Starting...', { today, time });
-      const id = await insertInSession(today, time, currentPlaceId);
+      console.log('[CheckIn] Starting...', { today, time: timeToUse });
+      const id = await insertInSession(today, timeToUse, currentPlaceId);
       console.log('[CheckIn] Success, session ID:', id);
       await Promise.all([
         get().loadToday(),
@@ -226,24 +226,23 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
     }
   },
 
-  checkOut: async () => {
+  checkOut: async (time?: string) => {
     try {
       await get().loadToday();
       const { todaySessions } = get();
       const openSession = todaySessions.find((s) => !s.out_time);
       if (!openSession) {
-        throw new Error('Belum ada sesi masuk yang bisa diakhiri.');
+        throw new Error('Tidak ada sesi absen terbuka untuk absen keluar.');
       }
-      const time = getCurrentTime();
-      console.log('[CheckOut] Starting...', { sessionId: openSession.id, time });
-      await updateOutSession(openSession.id, time);
+      const timeToUse = time || getCurrentTime();
+      console.log('[CheckOut] Starting...', { id: openSession.id, time: timeToUse });
+      await updateOutSession(openSession.id, timeToUse);
       console.log('[CheckOut] Success');
       await Promise.all([
         get().loadToday(),
         get().loadAll(),
         get().loadMonthly()
       ]);
-      console.log('[CheckOut] Data reloaded');
     } catch (error) {
       console.error('[CheckOut] Error:', error);
       throw error;

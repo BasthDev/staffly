@@ -96,10 +96,10 @@ export default function HomeScreen() {
     Animated.spring(anim, { toValue: 1, useNativeDriver: true, speed: 50 }).start();
   }
 
-  async function handleConfirm() {
+  async function handleConfirm(time?: string) {
     try {
-      if (popup === 'MASUK') await checkIn();
-      else if (popup === 'KELUAR') await checkOut();
+      if (popup === 'MASUK') await checkIn(time);
+      else if (popup === 'KELUAR') await checkOut(time);
       setPopup(null);
     } catch (err) {
       console.error('[handleConfirm] Error:', err);
