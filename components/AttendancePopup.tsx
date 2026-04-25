@@ -8,14 +8,15 @@ import {
   TouchableWithoutFeedback,
   View,
 } from 'react-native';
-import { LogIn, LogOut, Clock, Calendar, CircleCheck as CheckCircle2, Edit3 } from 'lucide-react-native';
+import { LogIn, LogOut, Clock, Calendar, CircleCheck as CheckCircle2, Edit3, ChevronLeft, ChevronRight, Plus } from 'lucide-react-native';
 import { formatDateLong, formatCurrentTimeSeconds } from '@/lib/dateUtils';
 
 interface AttendancePopupProps {
   visible: boolean;
-  type: 'MASUK' | 'KELUAR';
-  onConfirm: (time: string) => Promise<void> | void;
+  type: 'MASUK' | 'KELUAR' | 'MANUAL';
+  onConfirm: (date: string, inTime: string, outTime?: string) => Promise<void> | void;
   onCancel: () => void;
+  allowEdit?: boolean;
 }
 
 export default function AttendancePopup({
@@ -23,6 +24,7 @@ export default function AttendancePopup({
   type,
   onConfirm,
   onCancel,
+  allowEdit = false,
 }: AttendancePopupProps) {
   const slideAnim = useRef(new Animated.Value(400)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -31,10 +33,19 @@ export default function AttendancePopup({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
+  // Date editing state
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [isEditingDate, setIsEditingDate] = useState(false);
+  
   // Time editing state
   const [isEditingTime, setIsEditingTime] = useState(false);
   const [editHour, setEditHour] = useState('');
   const [editMinute, setEditMinute] = useState('');
+
+  // Out time editing state for MANUAL mode
+  const [isEditingOutTime, setIsEditingOutTime] = useState(false);
+  const [editOutHour, setEditOutHour] = useState('');
+  const [editOutMinute, setEditOutMinute] = useState('');
 
   // Reset and animate on visibility change
   useEffect(() => {
@@ -54,6 +65,17 @@ export default function AttendancePopup({
       setEditHour(hours);
       setEditMinute(minutes);
       setIsEditingTime(false);
+
+      // Initialize out time for MANUAL mode
+      const outHours = String(now.getHours() + 8).padStart(2, '0');
+      const outMinutes = String(now.getMinutes()).padStart(2, '0');
+      setEditOutHour(outHours);
+      setEditOutMinute(outMinutes);
+      setIsEditingOutTime(false);
+
+      // Initialize date to today
+      setSelectedDate(new Date());
+      setIsEditingDate(false);
 
       // Reset animation values before starting
       fadeAnim.setValue(0);
@@ -103,8 +125,9 @@ export default function AttendancePopup({
   }, [visible]);
 
   const isIn = type === 'MASUK';
-  const accentColor = isIn ? '#29b0f9' : '#F43F5E';
-  const bgAccent = isIn ? '#ecf5fd' : '#FFF1F2';
+  const isManual = type === 'MANUAL';
+  const accentColor = isManual ? '#10B981' : (isIn ? '#29b0f9' : '#F43F5E');
+  const bgAccent = isManual ? '#ECFDF5' : (isIn ? '#ecf5fd' : '#FFF1F2');
   const today = new Date();
 
   const adjustTime = (value: string, delta: number, max: number) => {
@@ -115,12 +138,32 @@ export default function AttendancePopup({
     return String(newValue).padStart(2, '0');
   };
 
+  const adjustDate = (delta: number) => {
+    const newDate = new Date(selectedDate);
+    newDate.setDate(newDate.getDate() + delta);
+    setSelectedDate(newDate);
+  };
+
+  function formatDateKey(date: Date): string {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  }
+
   async function handleConfirm() {
     setLoading(true);
     setError(null);
     try {
-      const timeToUse = isEditingTime ? `${editHour}:${editMinute}` : liveTime;
-      await onConfirm(timeToUse);
+      const dateToUse = formatDateKey(selectedDate);
+      // Always save time as HH:MM (without seconds)
+      const inTimeToUse = isEditingTime ? `${editHour}:${editMinute}` : (type === 'MANUAL' ? `${editHour}:${editMinute}` : liveTime.substring(0, 5));
+
+      if (type === 'MANUAL') {
+        // For MANUAL mode, pass both in and out times
+        const outTimeToUse = isEditingOutTime ? `${editOutHour}:${editOutMinute}` : `${editOutHour}:${editOutMinute}`;
+        await onConfirm(dateToUse, inTimeToUse, outTimeToUse);
+      } else {
+        // For MASUK/KELUAR mode, pass only the time
+        await onConfirm(dateToUse, inTimeToUse);
+      }
       setConfirmed(true);
       // Auto close after showing success for 1.5 seconds
       setTimeout(() => {
@@ -147,6 +190,8 @@ export default function AttendancePopup({
               <View style={[styles.iconRing, { backgroundColor: bgAccent }]}>
                 {confirmed ? (
                   <CheckCircle2 size={36} color={accentColor} strokeWidth={2} />
+                ) : isManual ? (
+                  <Plus size={36} color={accentColor} strokeWidth={2} />
                 ) : isIn ? (
                   <LogIn size={36} color={accentColor} strokeWidth={2} />
                 ) : (
@@ -155,26 +200,58 @@ export default function AttendancePopup({
               </View>
 
               <Text style={styles.title}>
-                {confirmed ? 'DiCatat' : isIn ? 'Absen Masuk' : 'Absen Keluar'}
+                {confirmed ? 'DiCatat' : isManual ? 'Absen Manual' : isIn ? 'Absen Masuk' : 'Absen Keluar'}
               </Text>
               <Text style={[styles.subtitle, { color: accentColor }]}>
                 {confirmed
-                  ? `Berhasil Absen ${isIn ? 'MASUK' : 'KELUAR'}`
-                  : isIn
-                  ? 'Tandai absen kamu hari ini'
+                  ? `Berhasil Absen ${isManual ? 'MANUAL' : isIn ? 'MASUK' : 'KELUAR'}`
+                  : isManual
+                  ? 'Catat waktu yang terlewat!'
                   : 'Akhiri sesi anda untuk saat ini'}
               </Text>
 
               <View style={styles.infoCard}>
-                <View style={styles.infoRow}>
+                <View style={[styles.infoRow, isEditingDate && styles.infoRowCentered]}>
                   <Calendar size={16} color="#64748B" strokeWidth={2} />
-                  <Text style={styles.infoLabel}>Tanggal</Text>
-                  <Text style={styles.infoValue}>{formatDateLong(today)}</Text>
+                  {!isEditingDate && <Text style={styles.infoLabel}>Tanggal</Text>}
+                  {isEditingDate ? (
+                    <View style={styles.datePickerContainer}>
+                      <TouchableOpacity
+                        style={styles.dateNavBtn}
+                        onPress={() => adjustDate(-1)}
+                        activeOpacity={0.7}
+                      >
+                        <ChevronLeft size={18} color="#64748B" />
+                      </TouchableOpacity>
+                      <View style={styles.dateValueWrapper}>
+                        <Text style={styles.datePickerValue}>{formatDateLong(selectedDate)}</Text>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.dateNavBtn}
+                        onPress={() => adjustDate(1)}
+                        activeOpacity={0.7}
+                      >
+                        <ChevronRight size={18} color="#64748B" />
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <Text style={styles.infoValue}>{formatDateLong(selectedDate)}</Text>
+                  )}
+                  {isEditingDate && <View style={{ flex: 1 }} />}
+                  {allowEdit && (
+                    <TouchableOpacity
+                      style={styles.editTimeBtn}
+                      onPress={() => setIsEditingDate(!isEditingDate)}
+                      activeOpacity={0.7}
+                    >
+                      <Edit3 size={14} color="#64748B" />
+                    </TouchableOpacity>
+                  )}
                 </View>
                 <View style={styles.divider} />
                 <View style={styles.infoRow}>
                   <Clock size={16} color="#64748B" strokeWidth={2} />
-                  <Text style={styles.infoLabel}>Waktu</Text>
+                  {!isEditingTime && <Text style={styles.infoLabel}>Waktu</Text>}
                   {isEditingTime ? (
                     <View style={styles.timePickerContainer}>
                       <View style={styles.timePicker}>
@@ -185,7 +262,9 @@ export default function AttendancePopup({
                         >
                           <Text style={styles.timeAdjustText}>+</Text>
                         </TouchableOpacity>
-                        <Text style={styles.timePickerValue}>{editHour}</Text>
+                        <View style={styles.timeValueWrapper}>
+                          <Text style={styles.timePickerValue}>{editHour}</Text>
+                        </View>
                         <TouchableOpacity
                           style={styles.timeAdjustBtn}
                           onPress={() => setEditHour(adjustTime(editHour, -1, 23))}
@@ -203,7 +282,9 @@ export default function AttendancePopup({
                         >
                           <Text style={styles.timeAdjustText}>+</Text>
                         </TouchableOpacity>
-                        <Text style={styles.timePickerValue}>{editMinute}</Text>
+                        <View style={styles.timeValueWrapper}>
+                          <Text style={styles.timePickerValue}>{editMinute}</Text>
+                        </View>
                         <TouchableOpacity
                           style={styles.timeAdjustBtn}
                           onPress={() => setEditMinute(adjustTime(editMinute, -1, 59))}
@@ -214,16 +295,86 @@ export default function AttendancePopup({
                       </View>
                     </View>
                   ) : (
-                    <Text style={[styles.infoValue, styles.timeValue]}>{liveTime}</Text>
+                    <Text style={[styles.infoValue, styles.timeValue]}>{type === 'MANUAL' ? `${editHour}:${editMinute}` : liveTime}</Text>
                   )}
-                  <TouchableOpacity
-                    style={styles.editTimeBtn}
-                    onPress={() => setIsEditingTime(!isEditingTime)}
-                    activeOpacity={0.7}
-                  >
-                    <Edit3 size={14} color="#64748B" />
-                  </TouchableOpacity>
+                  {isEditingTime && <View style={{ flex: 1 }} />}
+                  {allowEdit && (
+                    <TouchableOpacity
+                      style={styles.editTimeBtn}
+                      onPress={() => setIsEditingTime(!isEditingTime)}
+                      activeOpacity={0.7}
+                    >
+                      <Edit3 size={14} color="#64748B" />
+                    </TouchableOpacity>
+                  )}
                 </View>
+
+                {/* Out Time Row - Only for MANUAL mode */}
+                {type === 'MANUAL' && (
+                  <>
+                    <View style={styles.divider} />
+                    <View style={styles.infoRow}>
+                      <LogOut size={16} color="#64748B" strokeWidth={2} />
+                      {!isEditingOutTime && <Text style={styles.infoLabel}>Waktu Keluar</Text>}
+                      {isEditingOutTime ? (
+                        <View style={styles.timePickerContainer}>
+                          <View style={styles.timePicker}>
+                            <TouchableOpacity
+                              style={styles.timeAdjustBtn}
+                              onPress={() => setEditOutHour(adjustTime(editOutHour, 1, 23))}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={styles.timeAdjustText}>+</Text>
+                            </TouchableOpacity>
+                            <View style={styles.timeValueWrapper}>
+                              <Text style={styles.timePickerValue}>{editOutHour}</Text>
+                            </View>
+                            <TouchableOpacity
+                              style={styles.timeAdjustBtn}
+                              onPress={() => setEditOutHour(adjustTime(editOutHour, -1, 23))}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={styles.timeAdjustText}>-</Text>
+                            </TouchableOpacity>
+                          </View>
+                          <Text style={styles.timeSeparator}>:</Text>
+                          <View style={styles.timePicker}>
+                            <TouchableOpacity
+                              style={styles.timeAdjustBtn}
+                              onPress={() => setEditOutMinute(adjustTime(editOutMinute, 1, 59))}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={styles.timeAdjustText}>+</Text>
+                            </TouchableOpacity>
+                            <View style={styles.timeValueWrapper}>
+                              <Text style={styles.timePickerValue}>{editOutMinute}</Text>
+                            </View>
+                            <TouchableOpacity
+                              style={styles.timeAdjustBtn}
+                              onPress={() => setEditOutMinute(adjustTime(editOutMinute, -1, 59))}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={styles.timeAdjustText}>-</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      ) : (
+                        <Text style={[styles.infoValue, styles.timeValue]}>{editOutHour}:{editOutMinute}</Text>
+                      )}
+                      {isEditingOutTime && <View style={{ flex: 1 }} />}
+                      {allowEdit && (
+                        <TouchableOpacity
+                          style={styles.editTimeBtn}
+                          onPress={() => setIsEditingOutTime(!isEditingOutTime)}
+                          activeOpacity={0.7}
+                        >
+                          <Edit3 size={14} color="#64748B" />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </>
+                )}
+
                 <View style={styles.divider} />
                 <View style={styles.infoRow}>
                   <View
@@ -268,7 +419,7 @@ export default function AttendancePopup({
                     activeOpacity={0.85}
                   >
                     <Text style={styles.confirmBtnText}>
-                      {error ? 'Coba Lagi' : `Konfirmasi ${isIn ? 'Absen Masuk' : 'Absen Keluar'}`}
+                      {error ? 'Coba Lagi' : 'Konfirmasi Absen'}
                     </Text>
                   </TouchableOpacity>
 
@@ -350,8 +501,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 14,
+    // paddingVertical: 14,
+    height: 60,
     gap: 10,
+  },
+  infoRowCentered: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   divider: {
     height: 1,
@@ -452,11 +608,15 @@ const styles = StyleSheet.create({
   timePickerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
+    // justifyContent: 'center',
+    gap: 12,
+    flex: 1,
   },
   timePicker: {
+    // flexDirection: 'column',
     alignItems: 'center',
+    // justifyContent: 'center',
+    flexDirection: 'row',
     gap: 4,
   },
   timeAdjustBtn: {
@@ -490,5 +650,29 @@ const styles = StyleSheet.create({
   editTimeBtn: {
     padding: 4,
     borderRadius: 6,
+  },
+  datePickerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  dateNavBtn: {
+    padding: 4,
+    borderRadius: 6,
+  },
+  datePickerValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0F172A',
+    minWidth: '52%',
+    textAlign: 'center',
+  },
+  dateValueWrapper: {
+    paddingHorizontal: 12,
+    
+  },
+  timeValueWrapper: {
+    paddingHorizontal: 8,
   },
 });

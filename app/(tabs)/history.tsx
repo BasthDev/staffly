@@ -5,10 +5,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Sharing from 'expo-sharing';
 import { documentDirectory, writeAsStringAsync } from 'expo-file-system/legacy';
-import { Clock3, CalendarDays, Briefcase, ChevronsDown, ChevronsUp, Clock, ListFilter, Download, FileSpreadsheet, FileText, X } from 'lucide-react-native';
+import { Clock3, CalendarDays, Briefcase, ChevronsDown, ChevronsUp, Clock, ListFilter, Download, FileSpreadsheet, FileText, X, Plus } from 'lucide-react-native';
 import { useAttendanceStore } from '@/store/attendanceStore';
 import SessionRow from '@/components/SessionRow';
 import MonthFilter from '@/components/MonthFilter';
+import AttendancePopup from '@/components/AttendancePopup';
 import { Ionicons } from '@expo/vector-icons';
 
 const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
@@ -37,7 +38,7 @@ function getMonthYearFromDate(dateStr: string): string {
 }
 
 export default function HistoryScreen() {
-  const { allGrouped, loadAll, loadMonthly, places, currentPlaceId, deleteSession, updateSession } = useAttendanceStore();
+  const { allGrouped, monthlyGrouped, monthlyTotalHours, loading, loadMonthly, loadAll, deleteSession, updateSession, insertManualSession, places, currentPlaceId } = useAttendanceStore();
   const currentPlaceName = places.find((p) => p.id === currentPlaceId)?.name || 'Default';
   const currentMonthKey = getCurrentMonthKey();
 
@@ -68,6 +69,16 @@ export default function HistoryScreen() {
   const [showExportPicker, setShowExportPicker] = useState(false);
   const [pendingExportMonth, setPendingExportMonth] = useState<{ monthKey: string; monthData: any[] } | null>(null);
   const exportAnim = useRef(new Animated.Value(0)).current;
+
+  // Manual attendance entry state
+  const [manualPopupVisible, setManualPopupVisible] = useState(false);
+
+  const handleManualConfirm = async (date: string, inTime: string, outTime?: string) => {
+    if (outTime) {
+      await insertManualSession(date, inTime, outTime);
+    }
+    setManualPopupVisible(false);
+  };
 
   // Animate export picker
   useEffect(() => {
@@ -327,6 +338,13 @@ export default function HistoryScreen() {
                 : getCurrentMonthYear()}
             </Text>
           </View>
+          <TouchableOpacity
+            style={styles.addManualBtn}
+            onPress={() => setManualPopupVisible(true)}
+            activeOpacity={0.8}
+          >
+            <Plus size={20} color="#FFFFFF" strokeWidth={2.5} />
+          </TouchableOpacity>
         </LinearGradient>
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
@@ -554,6 +572,15 @@ export default function HistoryScreen() {
           </Animated.View>
         </View>
       </Modal>
+
+      {/* Manual Attendance Popup */}
+      <AttendancePopup
+        visible={manualPopupVisible}
+        type="MANUAL"
+        onConfirm={handleManualConfirm}
+        onCancel={() => setManualPopupVisible(false)}
+        allowEdit={true}
+      />
     </SafeAreaView>
   );
 }
@@ -839,5 +866,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     color: '#64748B',
+  },
+  addManualBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 12,
   },
 });

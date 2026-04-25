@@ -3,7 +3,7 @@ import { StyleSheet, Text, View, TouchableOpacity, Modal } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Session } from '@/lib/database';
 import { formatDateKey, formatDateLong } from '@/lib/dateUtils';
-import { ArrowRight, Trash2, X, Pencil, MoreVertical, Clock, Check, LogIn, Plus, Minus } from 'lucide-react-native';
+import { ArrowRight, Trash2, X, Pencil, MoreVertical, Clock, Check, LogIn, Plus, Minus, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 
 interface SessionRowProps {
@@ -12,7 +12,7 @@ interface SessionRowProps {
   compact?: boolean;
   isFirstInMonth?: boolean;
   onDeleteSession?: (sessionId: number) => void;
-  onUpdateSession?: (sessionId: number, inTime: string, outTime: string | null) => void;
+  onUpdateSession?: (sessionId: number, newDate: string, inTime: string, outTime: string | null) => void;
 }
 
 function parseTime(timeStr: string): number {
@@ -32,6 +32,10 @@ export default function SessionRow({ date, sessions, compact = false, isFirstInM
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
 
+  // Edit date state
+  const [editDate, setEditDate] = useState(new Date());
+  const [isEditingDate, setIsEditingDate] = useState(false);
+
   // Edit time states
   const [editInHour, setEditInHour] = useState('08');
   const [editInMinute, setEditInMinute] = useState('00');
@@ -45,6 +49,16 @@ export default function SessionRow({ date, sessions, compact = false, isFirstInM
     setSelectedSession(session);
     setActionModalVisible(true);
   };
+
+  const adjustDate = (delta: number) => {
+    const newDate = new Date(editDate);
+    newDate.setDate(newDate.getDate() + delta);
+    setEditDate(newDate);
+  };
+
+  function dateToKey(date: Date): string {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  }
 
   const handleActionDelete = () => {
     setActionModalVisible(false);
@@ -61,6 +75,10 @@ export default function SessionRow({ date, sessions, compact = false, isFirstInM
 
   const handleActionEdit = () => {
     if (!selectedSession) return;
+
+    // Parse date from session
+    const [y, m, d] = date.split('-').map(Number);
+    setEditDate(new Date(y, m - 1, d));
 
     const [inH, inM] = selectedSession.in_time.split(':');
     setEditInHour(inH || '08');
@@ -84,10 +102,11 @@ export default function SessionRow({ date, sessions, compact = false, isFirstInM
   const handleSaveEdit = () => {
     if (!selectedSession || !onUpdateSession) return;
 
-    const newInTime = `${editInHour.padStart(2, '0')}:${editInMinute.padStart(2, '0')}`;
-    const newOutTime = editHasOut ? `${editOutHour.padStart(2, '0')}:${editOutMinute.padStart(2, '0')}` : null;
+    const newDate = dateToKey(editDate);
+    const newInTime = `${editInHour}:${editInMinute}`;
+    const newOutTime = editHasOut ? `${editOutHour}:${editOutMinute}` : null;
 
-    onUpdateSession(selectedSession.id, newInTime, newOutTime);
+    onUpdateSession(selectedSession.id, newDate, newInTime, newOutTime);
     setEditModalVisible(false);
     setSelectedSession(null);
   };
@@ -300,7 +319,44 @@ export default function SessionRow({ date, sessions, compact = false, isFirstInM
                 <Clock size={28} color="#29b0f9" strokeWidth={2.5} />
               </View>
               <Text style={styles.editModalTitle}>Edit Waktu</Text>
-              <Text style={styles.editModalSubtitle}>{formatDateLong(new Date(date))}</Text>
+              <Text style={styles.editModalSubtitle}>{formatDateLong(editDate)}</Text>
+            </View>
+
+            {/* Date Picker Section */}
+            <View style={styles.dateSection}>
+              <View style={styles.dateSectionHeader}>
+                <Text style={styles.dateSectionLabel}>TANGGAL</Text>
+                <TouchableOpacity
+                  style={styles.editDateToggleBtn}
+                  onPress={() => setIsEditingDate(!isEditingDate)}
+                  activeOpacity={0.8}
+                >
+                  <Pencil size={14} color="#64748B" />
+                </TouchableOpacity>
+              </View>
+              {isEditingDate ? (
+                <View style={styles.datePickerContainer}>
+                  <TouchableOpacity
+                    style={styles.dateNavBtn}
+                    onPress={() => adjustDate(-1)}
+                    activeOpacity={0.7}
+                  >
+                    <ChevronLeft size={18} color="#64748B" />
+                  </TouchableOpacity>
+                  <View style={styles.dateValueWrapper}>
+                    <Text style={styles.datePickerValue}>{formatDateLong(editDate)}</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.dateNavBtn}
+                    onPress={() => adjustDate(1)}
+                    activeOpacity={0.7}
+                  >
+                    <ChevronRight size={18} color="#64748B" />
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <Text style={styles.dateDisplayValue}>{formatDateLong(editDate)}</Text>
+              )}
             </View>
 
             <View style={styles.timeSection}>
@@ -851,6 +907,54 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#94A3B8',
     marginTop: 2,
+  },
+  dateSection: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  dateSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  dateSectionLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.5,
+  },
+  editDateToggleBtn: {
+    padding: 6,
+    borderRadius: 8,
+  },
+  datePickerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  dateNavBtn: {
+    padding: 6,
+    borderRadius: 8,
+  },
+  dateValueWrapper: {
+    paddingHorizontal: 16,
+  },
+  datePickerValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  dateDisplayValue: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#0F172A',
+    textAlign: 'center',
   },
   editModalActions: {
     flexDirection: 'row',

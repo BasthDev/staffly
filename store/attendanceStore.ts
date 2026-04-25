@@ -1,19 +1,21 @@
 import { create } from 'zustand';
+import { Session, Place } from '@/lib/database';
 import {
-  Session,
-  Place,
-  getSessionsByDate,
   insertInSession,
+  insertManualSession,
   updateOutSession,
+  getSessionsByDate,
+  getAllDates,
+  getSessionsByDateRange,
   getSessionsGroupedByDate,
   getSessionsGroupedByDateRange,
   getPlaces,
   insertPlace,
-  updatePlaceName,
-  clearSessionsByPlace,
-  deleteSession as deleteSessionFromDb,
   getCurrentPlaceId,
   setCurrentPlaceId,
+  clearSessionsByPlace,
+  updatePlaceName,
+  deleteSession as deleteSessionFromDb,
   updateSession as updateSessionInDb,
 } from '@/lib/database';
 
@@ -81,9 +83,10 @@ interface AttendanceState {
   loadToday: () => Promise<void>;
   loadAll: () => Promise<void>;
   loadMonthly: () => Promise<void>;
-  checkIn: (time?: string) => Promise<void>;
-  checkOut: (time?: string) => Promise<void>;
-  updateSession: (sessionId: number, inTime: string, outTime: string | null) => Promise<void>;
+  checkIn: (date?: string, time?: string) => Promise<void>;
+  checkOut: (date?: string, time?: string) => Promise<void>;
+  updateSession: (sessionId: number, newDate: string, inTime: string, outTime: string | null) => Promise<void>;
+  insertManualSession: (date: string, inTime: string, outTime: string) => Promise<void>;
   hasOpenSession: () => boolean;
   canCheckOut: () => boolean;
   loadDemoData: () => Promise<void>;
@@ -202,17 +205,17 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
     set({ monthlyGrouped: grouped, monthlyTotalHours: totalHours });
   },
 
-  checkIn: async (time?: string) => {
+  checkIn: async (date?: string, time?: string) => {
     try {
       await get().loadToday();
       if (get().todaySessions.some((s) => !s.out_time)) {
         throw new Error('Masih ada sesi absen terbuka. Silakan absen keluar terlebih dahulu.');
       }
-      const today = getTodayDate();
+      const dateToUse = date || getTodayDate();
       const timeToUse = time || getCurrentTime();
       const { currentPlaceId } = get();
-      console.log('[CheckIn] Starting...', { today, time: timeToUse });
-      const id = await insertInSession(today, timeToUse, currentPlaceId);
+      console.log('[CheckIn] Starting...', { date: dateToUse, time: timeToUse });
+      const id = await insertInSession(dateToUse, timeToUse, currentPlaceId);
       console.log('[CheckIn] Success, session ID:', id);
       await Promise.all([
         get().loadToday(),
@@ -226,7 +229,7 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
     }
   },
 
-  checkOut: async (time?: string) => {
+  checkOut: async (date?: string, time?: string) => {
     try {
       await get().loadToday();
       const { todaySessions } = get();
@@ -249,9 +252,9 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
     }
   },
 
-  updateSession: async (sessionId: number, inTime: string, outTime: string | null) => {
+  updateSession: async (sessionId: number, newDate: string, inTime: string, outTime: string | null) => {
     try {
-      await updateSessionInDb(sessionId, inTime, outTime);
+      await updateSessionInDb(sessionId, newDate, inTime, outTime);
       await Promise.all([
         get().loadToday(),
         get().loadAll(),
@@ -259,6 +262,21 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
       ]);
     } catch (error) {
       console.error('[UpdateSession] Error:', error);
+      throw error;
+    }
+  },
+
+  insertManualSession: async (date: string, inTime: string, outTime: string) => {
+    try {
+      const placeId = get().currentPlaceId;
+      await insertManualSession(date, inTime, outTime, placeId);
+      await Promise.all([
+        get().loadToday(),
+        get().loadAll(),
+        get().loadMonthly()
+      ]);
+    } catch (error) {
+      console.error('[InsertManualSession] Error:', error);
       throw error;
     }
   },
