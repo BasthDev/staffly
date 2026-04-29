@@ -85,8 +85,8 @@ interface AttendanceState {
   loadMonthly: () => Promise<void>;
   checkIn: (date?: string, time?: string) => Promise<void>;
   checkOut: (date?: string, time?: string) => Promise<void>;
-  updateSession: (sessionId: number, newDate: string, inTime: string, outTime: string | null) => Promise<void>;
-  insertManualSession: (date: string, inTime: string, outTime: string) => Promise<void>;
+  updateSession: (sessionId: number, newDate: string, inTime: string, outTime: string | null, outDate?: string | null) => Promise<void>;
+  insertManualSession: (date: string, inTime: string, outTime: string, outDate: string | null) => Promise<void>;
   hasOpenSession: () => boolean;
   canCheckOut: () => boolean;
   loadDemoData: () => Promise<void>;
@@ -252,9 +252,9 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
     }
   },
 
-  updateSession: async (sessionId: number, newDate: string, inTime: string, outTime: string | null) => {
+  updateSession: async (sessionId: number, newDate: string, inTime: string, outTime: string | null, outDate?: string | null) => {
     try {
-      await updateSessionInDb(sessionId, newDate, inTime, outTime);
+      await updateSessionInDb(sessionId, newDate, inTime, outTime, outDate ?? null);
       await Promise.all([
         get().loadToday(),
         get().loadAll(),
@@ -266,10 +266,10 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
     }
   },
 
-  insertManualSession: async (date: string, inTime: string, outTime: string) => {
+  insertManualSession: async (date: string, inTime: string, outTime: string, outDate: string | null) => {
     try {
       const placeId = get().currentPlaceId;
-      await insertManualSession(date, inTime, outTime, placeId);
+      await insertManualSession(date, inTime, outTime, outDate, placeId);
       await Promise.all([
         get().loadToday(),
         get().loadAll(),

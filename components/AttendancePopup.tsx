@@ -2,19 +2,20 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Modal,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   TouchableWithoutFeedback,
   View,
 } from 'react-native';
-import { LogIn, LogOut, Clock, Calendar, CircleCheck as CheckCircle2, Edit3, ChevronLeft, ChevronRight, Plus } from 'lucide-react-native';
+import { LogIn, LogOut, Clock, Calendar, CircleCheck as CheckCircle2, Edit3, ChevronLeft, ChevronRight, Plus, Minus } from 'lucide-react-native';
 import { formatDateLong, formatCurrentTimeSeconds } from '@/lib/dateUtils';
 
 interface AttendancePopupProps {
   visible: boolean;
   type: 'MASUK' | 'KELUAR' | 'MANUAL';
-  onConfirm: (date: string, inTime: string, outTime?: string) => Promise<void> | void;
+  onConfirm: (date: string, inTime: string, outTime?: string, outDate?: string) => Promise<void> | void;
   onCancel: () => void;
   allowEdit?: boolean;
 }
@@ -47,6 +48,10 @@ export default function AttendancePopup({
   const [editOutHour, setEditOutHour] = useState('');
   const [editOutMinute, setEditOutMinute] = useState('');
 
+  // Out date editing state for MANUAL mode
+  const [selectedOutDate, setSelectedOutDate] = useState(new Date());
+  const [isEditingOutDate, setIsEditingOutDate] = useState(false);
+
   // Reset and animate on visibility change
   useEffect(() => {
     // Stop any running animations first
@@ -72,6 +77,10 @@ export default function AttendancePopup({
       setEditOutHour(outHours);
       setEditOutMinute(outMinutes);
       setIsEditingOutTime(false);
+
+      // Initialize out date to today for MANUAL mode
+      setSelectedOutDate(new Date());
+      setIsEditingOutDate(false);
 
       // Initialize date to today
       setSelectedDate(new Date());
@@ -144,6 +153,12 @@ export default function AttendancePopup({
     setSelectedDate(newDate);
   };
 
+  const adjustOutDate = (delta: number) => {
+    const newDate = new Date(selectedOutDate);
+    newDate.setDate(newDate.getDate() + delta);
+    setSelectedOutDate(newDate);
+  };
+
   function formatDateKey(date: Date): string {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   }
@@ -157,9 +172,10 @@ export default function AttendancePopup({
       const inTimeToUse = isEditingTime ? `${editHour}:${editMinute}` : (type === 'MANUAL' ? `${editHour}:${editMinute}` : liveTime.substring(0, 5));
 
       if (type === 'MANUAL') {
-        // For MANUAL mode, pass both in and out times
+        // For MANUAL mode, pass both in and out times and out date
         const outTimeToUse = isEditingOutTime ? `${editOutHour}:${editOutMinute}` : `${editOutHour}:${editOutMinute}`;
-        await onConfirm(dateToUse, inTimeToUse, outTimeToUse);
+        const outDateToUse = formatDateKey(selectedOutDate);
+        await onConfirm(dateToUse, inTimeToUse, outTimeToUse, outDateToUse);
       } else {
         // For MASUK/KELUAR mode, pass only the time
         await onConfirm(dateToUse, inTimeToUse);
@@ -181,10 +197,9 @@ export default function AttendancePopup({
     <Modal transparent visible={visible} animationType="none" statusBarTranslucent>
       <TouchableWithoutFeedback onPress={onCancel}>
         <Animated.View style={[styles.backdrop, { opacity: fadeAnim }]}>
-          <TouchableWithoutFeedback onPress={() => {}}>
-            <Animated.View
-              style={[styles.sheet, { transform: [{ translateY: slideAnim }] }]}
-            >
+          <Animated.View
+            style={[styles.sheet, { transform: [{ translateY: slideAnim }] }]}
+          >
               <View style={styles.handle} />
 
               <View style={[styles.iconRing, { backgroundColor: bgAccent }]}>
@@ -210,184 +225,250 @@ export default function AttendancePopup({
                   : 'Akhiri sesi anda untuk saat ini'}
               </Text>
 
-              <View style={styles.infoCard}>
-                <View style={[styles.infoRow, isEditingDate && styles.infoRowCentered]}>
-                  <Calendar size={16} color="#64748B" strokeWidth={2} />
-                  {!isEditingDate && <Text style={styles.infoLabel}>Tanggal</Text>}
-                  {isEditingDate ? (
-                    <View style={styles.datePickerContainer}>
+              {type === 'MANUAL' ? (
+                <ScrollView
+                  style={styles.editModalScroll}
+                  contentContainerStyle={styles.editModalScrollContent}
+                  showsVerticalScrollIndicator={false}
+                >
+                  <View style={styles.editFormGroup}>
+                    <Text style={styles.editFormGroupTitle}>Masuk</Text>
+
+                    <View style={styles.dateSection}>
+                      <View style={styles.datePickerContainer}>
+                        <TouchableOpacity
+                          style={styles.dateNavBtn}
+                          onPress={() => adjustDate(-1)}
+                          activeOpacity={0.7}
+                        >
+                          <ChevronLeft size={18} color="#64748B" />
+                        </TouchableOpacity>
+                        <View style={styles.dateValueWrapper}>
+                          <Text style={styles.datePickerValue}>{formatDateLong(selectedDate)}</Text>
+                        </View>
+                        <TouchableOpacity
+                          style={styles.dateNavBtn}
+                          onPress={() => adjustDate(1)}
+                          activeOpacity={0.7}
+                        >
+                          <ChevronRight size={18} color="#64748B" />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+
+                    <View style={styles.timeSection}>
+                      <View style={styles.timePicker}>
+                        <View style={styles.stackedControls}>
+                          <TouchableOpacity
+                            style={[styles.timeAdjustBtnSmall, styles.addBtn]}
+                            onPress={() => setEditHour(adjustTime(editHour, 1, 23))}
+                          >
+                            <Plus size={16} color="#FFFFFF" strokeWidth={3} />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.timeAdjustBtnSmall, styles.minusBtn]}
+                            onPress={() => setEditHour(adjustTime(editHour, -1, 23))}
+                          >
+                            <Minus size={16} color="#FFFFFF" strokeWidth={3} />
+                          </TouchableOpacity>
+                        </View>
+                        <Text style={styles.timeValueLarge}>{editHour}</Text>
+                        <Text style={styles.timeSeparator}>:</Text>
+                        <Text style={styles.timeValueLarge}>{editMinute}</Text>
+                        <View style={styles.stackedControls}>
+                          <TouchableOpacity
+                            style={[styles.timeAdjustBtnSmall, styles.addBtn]}
+                            onPress={() => setEditMinute(adjustTime(editMinute, 1, 59))}
+                          >
+                            <Plus size={16} color="#FFFFFF" strokeWidth={3} />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.timeAdjustBtnSmall, styles.minusBtn]}
+                            onPress={() => setEditMinute(adjustTime(editMinute, -1, 59))}
+                          >
+                            <Minus size={16} color="#FFFFFF" strokeWidth={3} />
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+
+                  <View style={styles.editFormGroup}>
+                    <Text style={styles.editFormGroupTitle}>Keluar</Text>
+
+                    <View style={styles.dateSection}>
+                      <View style={styles.datePickerContainer}>
+                        <TouchableOpacity
+                          style={styles.dateNavBtn}
+                          onPress={() => adjustOutDate(-1)}
+                          activeOpacity={0.7}
+                        >
+                          <ChevronLeft size={18} color="#64748B" />
+                        </TouchableOpacity>
+                        <View style={styles.dateValueWrapper}>
+                          <Text style={styles.datePickerValue}>{formatDateLong(selectedOutDate)}</Text>
+                        </View>
+                        <TouchableOpacity
+                          style={styles.dateNavBtn}
+                          onPress={() => adjustOutDate(1)}
+                          activeOpacity={0.7}
+                        >
+                          <ChevronRight size={18} color="#64748B" />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+
+                    <View style={styles.timeSection}>
+                      <View style={styles.timePicker}>
+                        <View style={styles.stackedControls}>
+                          <TouchableOpacity
+                            style={[styles.timeAdjustBtnSmall, styles.addBtn]}
+                            onPress={() => setEditOutHour(adjustTime(editOutHour, 1, 23))}
+                          >
+                            <Plus size={16} color="#FFFFFF" strokeWidth={3} />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.timeAdjustBtnSmall, styles.minusBtn]}
+                            onPress={() => setEditOutHour(adjustTime(editOutHour, -1, 23))}
+                          >
+                            <Minus size={16} color="#FFFFFF" strokeWidth={3} />
+                          </TouchableOpacity>
+                        </View>
+                        <Text style={styles.timeValueLarge}>{editOutHour}</Text>
+                        <Text style={styles.timeSeparator}>:</Text>
+                        <Text style={styles.timeValueLarge}>{editOutMinute}</Text>
+                        <View style={styles.stackedControls}>
+                          <TouchableOpacity
+                            style={[styles.timeAdjustBtnSmall, styles.addBtn]}
+                            onPress={() => setEditOutMinute(adjustTime(editOutMinute, 1, 59))}
+                          >
+                            <Plus size={16} color="#FFFFFF" strokeWidth={3} />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.timeAdjustBtnSmall, styles.minusBtn]}
+                            onPress={() => setEditOutMinute(adjustTime(editOutMinute, -1, 59))}
+                          >
+                            <Minus size={16} color="#FFFFFF" strokeWidth={3} />
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                </ScrollView>
+              ) : (
+                <View style={styles.infoCard}>
+                  <View style={[styles.infoRow, isEditingDate && styles.infoRowCentered]}>
+                    <Calendar size={16} color="#64748B" strokeWidth={2} />
+                    {!isEditingDate && <Text style={styles.infoLabel}>Tanggal</Text>}
+                    {isEditingDate ? (
+                      <View style={styles.datePickerContainer}>
+                        <TouchableOpacity
+                          style={styles.dateNavBtn}
+                          onPress={() => adjustDate(-1)}
+                          activeOpacity={0.7}
+                        >
+                          <ChevronLeft size={18} color="#64748B" />
+                        </TouchableOpacity>
+                        <View style={styles.dateValueWrapper}>
+                          <Text style={styles.datePickerValue}>{formatDateLong(selectedDate)}</Text>
+                        </View>
+                        <TouchableOpacity
+                          style={styles.dateNavBtn}
+                          onPress={() => adjustDate(1)}
+                          activeOpacity={0.7}
+                        >
+                          <ChevronRight size={18} color="#64748B" />
+                        </TouchableOpacity>
+                      </View>
+                    ) : (
+                      <Text style={styles.infoValue}>{formatDateLong(selectedDate)}</Text>
+                    )}
+                    {isEditingDate && <View style={{ flex: 1 }} />}
+                    {allowEdit && (
                       <TouchableOpacity
-                        style={styles.dateNavBtn}
-                        onPress={() => adjustDate(-1)}
+                        style={styles.editTimeBtn}
+                        onPress={() => setIsEditingDate(!isEditingDate)}
                         activeOpacity={0.7}
                       >
-                        <ChevronLeft size={18} color="#64748B" />
+                        <Edit3 size={14} color="#64748B" />
                       </TouchableOpacity>
-                      <View style={styles.dateValueWrapper}>
-                        <Text style={styles.datePickerValue}>{formatDateLong(selectedDate)}</Text>
+                    )}
+                  </View>
+                  <View style={styles.divider} />
+                  <View style={styles.infoRow}>
+                    <Clock size={16} color="#64748B" strokeWidth={2} />
+                    {!isEditingTime && <Text style={styles.infoLabel}>Waktu</Text>}
+                    {isEditingTime ? (
+                      <View style={styles.timePickerContainer}>
+                        <View style={styles.timePicker}>
+                          <TouchableOpacity
+                            style={styles.timeAdjustBtn}
+                            onPress={() => setEditHour(adjustTime(editHour, 1, 23))}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.timeAdjustText}>+</Text>
+                          </TouchableOpacity>
+                          <View style={styles.timeValueWrapper}>
+                            <Text style={styles.timePickerValue}>{editHour}</Text>
+                          </View>
+                          <TouchableOpacity
+                            style={styles.timeAdjustBtn}
+                            onPress={() => setEditHour(adjustTime(editHour, -1, 23))}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.timeAdjustText}>-</Text>
+                          </TouchableOpacity>
+                        </View>
+                        <Text style={styles.timeSeparator}>:</Text>
+                        <View style={styles.timePicker}>
+                          <TouchableOpacity
+                            style={styles.timeAdjustBtn}
+                            onPress={() => setEditMinute(adjustTime(editMinute, 1, 59))}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.timeAdjustText}>+</Text>
+                          </TouchableOpacity>
+                          <View style={styles.timeValueWrapper}>
+                            <Text style={styles.timePickerValue}>{editMinute}</Text>
+                          </View>
+                          <TouchableOpacity
+                            style={styles.timeAdjustBtn}
+                            onPress={() => setEditMinute(adjustTime(editMinute, -1, 59))}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.timeAdjustText}>-</Text>
+                          </TouchableOpacity>
+                        </View>
                       </View>
+                    ) : (
+                      <Text style={[styles.infoValue, styles.timeValue]}>{liveTime}</Text>
+                    )}
+                    {isEditingTime && <View style={{ flex: 1 }} />}
+                    {allowEdit && (
                       <TouchableOpacity
-                        style={styles.dateNavBtn}
-                        onPress={() => adjustDate(1)}
+                        style={styles.editTimeBtn}
+                        onPress={() => setIsEditingTime(!isEditingTime)}
                         activeOpacity={0.7}
                       >
-                        <ChevronRight size={18} color="#64748B" />
+                        <Edit3 size={14} color="#64748B" />
                       </TouchableOpacity>
-                    </View>
-                  ) : (
-                    <Text style={styles.infoValue}>{formatDateLong(selectedDate)}</Text>
-                  )}
-                  {isEditingDate && <View style={{ flex: 1 }} />}
-                  {allowEdit && (
-                    <TouchableOpacity
-                      style={styles.editTimeBtn}
-                      onPress={() => setIsEditingDate(!isEditingDate)}
-                      activeOpacity={0.7}
-                    >
-                      <Edit3 size={14} color="#64748B" />
-                    </TouchableOpacity>
-                  )}
-                </View>
-                <View style={styles.divider} />
-                <View style={styles.infoRow}>
-                  <Clock size={16} color="#64748B" strokeWidth={2} />
-                  {!isEditingTime && <Text style={styles.infoLabel}>Waktu</Text>}
-                  {isEditingTime ? (
-                    <View style={styles.timePickerContainer}>
-                      <View style={styles.timePicker}>
-                        <TouchableOpacity
-                          style={styles.timeAdjustBtn}
-                          onPress={() => setEditHour(adjustTime(editHour, 1, 23))}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={styles.timeAdjustText}>+</Text>
-                        </TouchableOpacity>
-                        <View style={styles.timeValueWrapper}>
-                          <Text style={styles.timePickerValue}>{editHour}</Text>
-                        </View>
-                        <TouchableOpacity
-                          style={styles.timeAdjustBtn}
-                          onPress={() => setEditHour(adjustTime(editHour, -1, 23))}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={styles.timeAdjustText}>-</Text>
-                        </TouchableOpacity>
-                      </View>
-                      <Text style={styles.timeSeparator}>:</Text>
-                      <View style={styles.timePicker}>
-                        <TouchableOpacity
-                          style={styles.timeAdjustBtn}
-                          onPress={() => setEditMinute(adjustTime(editMinute, 1, 59))}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={styles.timeAdjustText}>+</Text>
-                        </TouchableOpacity>
-                        <View style={styles.timeValueWrapper}>
-                          <Text style={styles.timePickerValue}>{editMinute}</Text>
-                        </View>
-                        <TouchableOpacity
-                          style={styles.timeAdjustBtn}
-                          onPress={() => setEditMinute(adjustTime(editMinute, -1, 59))}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={styles.timeAdjustText}>-</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  ) : (
-                    <Text style={[styles.infoValue, styles.timeValue]}>{type === 'MANUAL' ? `${editHour}:${editMinute}` : liveTime}</Text>
-                  )}
-                  {isEditingTime && <View style={{ flex: 1 }} />}
-                  {allowEdit && (
-                    <TouchableOpacity
-                      style={styles.editTimeBtn}
-                      onPress={() => setIsEditingTime(!isEditingTime)}
-                      activeOpacity={0.7}
-                    >
-                      <Edit3 size={14} color="#64748B" />
-                    </TouchableOpacity>
-                  )}
-                </View>
+                    )}
+                  </View>
 
-                {/* Out Time Row - Only for MANUAL mode */}
-                {type === 'MANUAL' && (
-                  <>
-                    <View style={styles.divider} />
-                    <View style={styles.infoRow}>
-                      <LogOut size={16} color="#64748B" strokeWidth={2} />
-                      {!isEditingOutTime && <Text style={styles.infoLabel}>Waktu Keluar</Text>}
-                      {isEditingOutTime ? (
-                        <View style={styles.timePickerContainer}>
-                          <View style={styles.timePicker}>
-                            <TouchableOpacity
-                              style={styles.timeAdjustBtn}
-                              onPress={() => setEditOutHour(adjustTime(editOutHour, 1, 23))}
-                              activeOpacity={0.7}
-                            >
-                              <Text style={styles.timeAdjustText}>+</Text>
-                            </TouchableOpacity>
-                            <View style={styles.timeValueWrapper}>
-                              <Text style={styles.timePickerValue}>{editOutHour}</Text>
-                            </View>
-                            <TouchableOpacity
-                              style={styles.timeAdjustBtn}
-                              onPress={() => setEditOutHour(adjustTime(editOutHour, -1, 23))}
-                              activeOpacity={0.7}
-                            >
-                              <Text style={styles.timeAdjustText}>-</Text>
-                            </TouchableOpacity>
-                          </View>
-                          <Text style={styles.timeSeparator}>:</Text>
-                          <View style={styles.timePicker}>
-                            <TouchableOpacity
-                              style={styles.timeAdjustBtn}
-                              onPress={() => setEditOutMinute(adjustTime(editOutMinute, 1, 59))}
-                              activeOpacity={0.7}
-                            >
-                              <Text style={styles.timeAdjustText}>+</Text>
-                            </TouchableOpacity>
-                            <View style={styles.timeValueWrapper}>
-                              <Text style={styles.timePickerValue}>{editOutMinute}</Text>
-                            </View>
-                            <TouchableOpacity
-                              style={styles.timeAdjustBtn}
-                              onPress={() => setEditOutMinute(adjustTime(editOutMinute, -1, 59))}
-                              activeOpacity={0.7}
-                            >
-                              <Text style={styles.timeAdjustText}>-</Text>
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-                      ) : (
-                        <Text style={[styles.infoValue, styles.timeValue]}>{editOutHour}:{editOutMinute}</Text>
-                      )}
-                      {isEditingOutTime && <View style={{ flex: 1 }} />}
-                      {allowEdit && (
-                        <TouchableOpacity
-                          style={styles.editTimeBtn}
-                          onPress={() => setIsEditingOutTime(!isEditingOutTime)}
-                          activeOpacity={0.7}
-                        >
-                          <Edit3 size={14} color="#64748B" />
-                        </TouchableOpacity>
-                      )}
+                  <View style={styles.divider} />
+                  <View style={styles.infoRow}>
+                    <View
+                      style={[styles.typeDot, { backgroundColor: accentColor }]}
+                    />
+                    <Text style={styles.infoLabel}>Absen</Text>
+                    <View style={[styles.typeBadge, { backgroundColor: bgAccent }]}>
+                      <Text style={[styles.typeBadgeText, { color: accentColor }]}>
+                        {type}
+                      </Text>
                     </View>
-                  </>
-                )}
-
-                <View style={styles.divider} />
-                <View style={styles.infoRow}>
-                  <View
-                    style={[styles.typeDot, { backgroundColor: accentColor }]}
-                  />
-                  <Text style={styles.infoLabel}>Absen</Text>
-                  <View style={[styles.typeBadge, { backgroundColor: bgAccent }]}>
-                    <Text style={[styles.typeBadgeText, { color: accentColor }]}>
-                      {type}
-                    </Text>
                   </View>
                 </View>
-              </View>
+              )}
 
               {/* Loading Indicator */}
               {loading && (
@@ -433,10 +514,9 @@ export default function AttendancePopup({
                 </>
               )}
             </Animated.View>
-          </TouchableWithoutFeedback>
-        </Animated.View>
-      </TouchableWithoutFeedback>
-    </Modal>
+          </Animated.View>
+        </TouchableWithoutFeedback>
+      </Modal>
   );
 }
 
@@ -451,14 +531,79 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     paddingHorizontal: 24,
-    paddingBottom: 40,
     paddingTop: 12,
+    paddingBottom: 30,
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
+    shadowOffset: { width: 0, height: -6 },
     shadowOpacity: 0.12,
     shadowRadius: 20,
     elevation: 20,
+  },
+  editModalScroll: {
+    maxHeight: 360,
+    width: '100%',
+    marginTop: 16,
+  },
+  editModalScrollContent: {
+    paddingBottom: 8,
+    gap: 14,
+  },
+  editFormGroup: {
+    gap: 10,
+  },
+  editFormGroupTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  dateSection: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  timeSection: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 14,
+    borderWidth: 1.5,
+    borderColor: '#F1F5F9',
+  },
+  timeAdjustBtnSmall: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stackedControls: {
+    gap: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addBtn: {
+    backgroundColor: '#29b0f9',
+  },
+  minusBtn: {
+    backgroundColor: '#F43F5E',
+  },
+  timeValueLarge: {
+    fontSize: 36,
+    fontWeight: '800',
+    color: '#1E293B',
+    minWidth: 56,
+    textAlign: 'center',
+    fontVariant: ['tabular-nums'],
+  },
+  timeSeparator: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: '#CBD5E1',
+    marginHorizontal: 4,
   },
   handle: {
     width: 40,
@@ -613,11 +758,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   timePicker: {
-    // flexDirection: 'column',
-    alignItems: 'center',
-    // justifyContent: 'center',
     flexDirection: 'row',
-    gap: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
   },
   timeAdjustBtn: {
     width: 28,
@@ -642,11 +786,6 @@ const styles = StyleSheet.create({
     minWidth: 24,
     textAlign: 'center',
   },
-  timeSeparator: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#CBD5E1',
-  },
   editTimeBtn: {
     padding: 4,
     borderRadius: 6,
@@ -658,19 +797,16 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   dateNavBtn: {
-    padding: 4,
-    borderRadius: 6,
+    padding: 6,
+    borderRadius: 8,
   },
   datePickerValue: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: '700',
     color: '#0F172A',
-    minWidth: '52%',
-    textAlign: 'center',
   },
   dateValueWrapper: {
-    paddingHorizontal: 12,
-    
+    paddingHorizontal: 16,
   },
   timeValueWrapper: {
     paddingHorizontal: 8,

@@ -9,7 +9,7 @@ import { Clock3, CalendarDays, Briefcase, ChevronsDown, ChevronsUp, Clock, ListF
 import { useAttendanceStore } from '@/store/attendanceStore';
 import SessionRow from '@/components/SessionRow';
 import MonthFilter from '@/components/MonthFilter';
-import AttendancePopup from '@/components/AttendancePopup';
+import EditTimeModal from '@/components/EditTimeModal';
 import { Ionicons } from '@expo/vector-icons';
 
 const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
@@ -73,10 +73,17 @@ export default function HistoryScreen() {
   // Manual attendance entry state
   const [manualPopupVisible, setManualPopupVisible] = useState(false);
 
-  const handleManualConfirm = async (date: string, inTime: string, outTime?: string) => {
-    if (outTime) {
-      await insertManualSession(date, inTime, outTime);
-    }
+  const handleManualConfirm = async (inDate: Date, inHour: string, inMinute: string, outDate: Date, outHour: string, outMinute: string) => {
+    const formatDateKey = (date: Date): string => {
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    };
+
+    const dateKey = formatDateKey(inDate);
+    const inTime = `${inHour}:${inMinute}`;
+    const outTime = `${outHour}:${outMinute}`;
+    const outDateKey = formatDateKey(outDate);
+
+    await insertManualSession(dateKey, inTime, outTime, outDateKey);
     setManualPopupVisible(false);
   };
 
@@ -182,41 +189,55 @@ export default function HistoryScreen() {
         setPendingExportMonth(null);
         return;
       } else {
-        Sharing.shareAsync('' as any, {
-          dialogTitle: 'Share ke WhatsApp',
-        }).catch(() => {
-          const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(content)}`;
-          Linking.openURL(whatsappUrl).catch(() => {
+        const appUrl = `whatsapp://send?text=${encodeURIComponent(content)}`;
+        const webUrl = `https://wa.me/?text=${encodeURIComponent(content)}`;
+        Linking.openURL(appUrl)
+          .catch(() => Linking.openURL(webUrl))
+          .catch(() => {
             Alert.alert('Info', 'WhatsApp tidak terinstall atau tidak dapat dibuka');
+          })
+          .finally(() => {
+            setShowExportPicker(false);
+            setPendingExportMonth(null);
           });
-        });
-        setShowExportPicker(false);
-        setPendingExportMonth(null);
         return;
       }
     }
 
-    if (Platform.OS === 'web') {
-      const blob = new Blob([content], { type: `${mimeType};charset=utf-8;` });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = fileName;
-      link.click();
-      URL.revokeObjectURL(url);
-    } else {
-      const fileUri = (documentDirectory || '') + fileName;
-      writeAsStringAsync(fileUri, content).then(() => {
-        Sharing.shareAsync(fileUri, {
+    (async () => {
+      try {
+        if (Platform.OS === 'web') {
+          const blob = new Blob([content], { type: `${mimeType};charset=utf-8;` });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = fileName;
+          link.click();
+          URL.revokeObjectURL(url);
+          return;
+        }
+
+        const available = await Sharing.isAvailableAsync();
+        if (!available) {
+          Alert.alert('Info', 'Fitur share/export tidak tersedia di perangkat ini.');
+          return;
+        }
+
+        const fileUri = (documentDirectory || '') + fileName;
+        await writeAsStringAsync(fileUri, content);
+        await Sharing.shareAsync(fileUri, {
           mimeType: mimeType,
           dialogTitle: `Share Absensi ${monthDisplay} ${year}`,
-          UTI: uti
+          UTI: uti,
         });
-      });
-    }
-
-    setShowExportPicker(false);
-    setPendingExportMonth(null);
+      } catch (e) {
+        Alert.alert('Gagal', 'Export gagal. Coba lagi.');
+        console.error('[Export] Error:', e);
+      } finally {
+        setShowExportPicker(false);
+        setPendingExportMonth(null);
+      }
+    })();
   };
 
   const [refreshing, setRefreshing] = useState(false);
@@ -573,13 +594,15 @@ export default function HistoryScreen() {
         </View>
       </Modal>
 
-      {/* Manual Attendance Popup */}
-      <AttendancePopup
+      {/* Manual Attendance Modal */}
+      <EditTimeModal
         visible={manualPopupVisible}
-        type="MANUAL"
-        onConfirm={handleManualConfirm}
-        onCancel={() => setManualPopupVisible(false)}
-        allowEdit={true}
+        onClose={() => setManualPopupVisible(false)}
+        onSave={handleManualConfirm}
+        title="Absen Manual"
+        subtitle="Catat waktu yang terlewat!"
+        showOutToggle={false}
+        defaultHasOut={true}
       />
     </SafeAreaView>
   );

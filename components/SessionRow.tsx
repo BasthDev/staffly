@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Modal } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Modal, ScrollView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Session } from '@/lib/database';
 import { formatDateKey, formatDateLong } from '@/lib/dateUtils';
@@ -12,7 +12,7 @@ interface SessionRowProps {
   compact?: boolean;
   isFirstInMonth?: boolean;
   onDeleteSession?: (sessionId: number) => void;
-  onUpdateSession?: (sessionId: number, newDate: string, inTime: string, outTime: string | null) => void;
+  onUpdateSession?: (sessionId: number, newDate: string, inTime: string, outTime: string | null, outDate?: string | null) => void;
 }
 
 function parseTime(timeStr: string): number {
@@ -36,6 +36,10 @@ export default function SessionRow({ date, sessions, compact = false, isFirstInM
   const [editDate, setEditDate] = useState(new Date());
   const [isEditingDate, setIsEditingDate] = useState(false);
 
+  // Edit out date state
+  const [editOutDate, setEditOutDate] = useState(new Date());
+  const [isEditingOutDate, setIsEditingOutDate] = useState(false);
+
   // Edit time states
   const [editInHour, setEditInHour] = useState('08');
   const [editInMinute, setEditInMinute] = useState('00');
@@ -54,6 +58,12 @@ export default function SessionRow({ date, sessions, compact = false, isFirstInM
     const newDate = new Date(editDate);
     newDate.setDate(newDate.getDate() + delta);
     setEditDate(newDate);
+  };
+
+  const adjustOutDate = (delta: number) => {
+    const newDate = new Date(editOutDate);
+    newDate.setDate(newDate.getDate() + delta);
+    setEditOutDate(newDate);
   };
 
   function dateToKey(date: Date): string {
@@ -79,6 +89,15 @@ export default function SessionRow({ date, sessions, compact = false, isFirstInM
     // Parse date from session
     const [y, m, d] = date.split('-').map(Number);
     setEditDate(new Date(y, m - 1, d));
+    setIsEditingDate(true);
+
+    if (selectedSession.out_date) {
+      const [oy, om, od] = selectedSession.out_date.split('-').map(Number);
+      setEditOutDate(new Date(oy, om - 1, od));
+    } else {
+      setEditOutDate(new Date(y, m - 1, d));
+    }
+    setIsEditingOutDate(true);
 
     const [inH, inM] = selectedSession.in_time.split(':');
     setEditInHour(inH || '08');
@@ -105,8 +124,9 @@ export default function SessionRow({ date, sessions, compact = false, isFirstInM
     const newDate = dateToKey(editDate);
     const newInTime = `${editInHour}:${editInMinute}`;
     const newOutTime = editHasOut ? `${editOutHour}:${editOutMinute}` : null;
+    const newOutDate = editHasOut ? dateToKey(editOutDate) : null;
 
-    onUpdateSession(selectedSession.id, newDate, newInTime, newOutTime);
+    onUpdateSession(selectedSession.id, newDate, newInTime, newOutTime, newOutDate);
     setEditModalVisible(false);
     setSelectedSession(null);
   };
@@ -131,10 +151,12 @@ export default function SessionRow({ date, sessions, compact = false, isFirstInM
     if (pair.outTime) {
       const inMinutes = parseTime(pair.inTime);
       const outMinutes = parseTime(pair.outTime);
-      const duration = outMinutes - inMinutes;
-      if (duration > 0) {
-        totalMinutes += duration;
+      // Handle cross-day sessions (e.g., in at 23:00, out at 02:00 next day)
+      let duration = outMinutes - inMinutes;
+      if (duration < 0) {
+        duration += 24 * 60; // Add 24 hours for cross-day
       }
+      totalMinutes += duration;
     }
   });
 
@@ -322,137 +344,160 @@ export default function SessionRow({ date, sessions, compact = false, isFirstInM
               <Text style={styles.editModalSubtitle}>{formatDateLong(editDate)}</Text>
             </View>
 
-            {/* Date Picker Section */}
-            <View style={styles.dateSection}>
-              <View style={styles.dateSectionHeader}>
-                <Text style={styles.dateSectionLabel}>TANGGAL</Text>
-                <TouchableOpacity
-                  style={styles.editDateToggleBtn}
-                  onPress={() => setIsEditingDate(!isEditingDate)}
-                  activeOpacity={0.8}
-                >
-                  <Pencil size={14} color="#64748B" />
-                </TouchableOpacity>
-              </View>
-              {isEditingDate ? (
-                <View style={styles.datePickerContainer}>
-                  <TouchableOpacity
-                    style={styles.dateNavBtn}
-                    onPress={() => adjustDate(-1)}
-                    activeOpacity={0.7}
-                  >
-                    <ChevronLeft size={18} color="#64748B" />
-                  </TouchableOpacity>
-                  <View style={styles.dateValueWrapper}>
-                    <Text style={styles.datePickerValue}>{formatDateLong(editDate)}</Text>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.dateNavBtn}
-                    onPress={() => adjustDate(1)}
-                    activeOpacity={0.7}
-                  >
-                    <ChevronRight size={18} color="#64748B" />
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                <Text style={styles.dateDisplayValue}>{formatDateLong(editDate)}</Text>
-              )}
-            </View>
+            <ScrollView
+              style={styles.editModalScroll}
+              contentContainerStyle={styles.editModalScrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={styles.editFormGroup}>
+                <Text style={styles.editFormGroupTitle}>Masuk</Text>
 
-            <View style={styles.timeSection}>
-              <Text style={styles.timeSectionLabel}>WAKTU MASUK</Text>
-              <View style={styles.timePicker}>
-                <View style={styles.stackedControls}>
-                  <TouchableOpacity
-                    style={[styles.timeAdjustBtnSmall, styles.addBtn]}
-                    onPress={() => setEditInHour(adjustTime(editInHour, 1, 23))}
-                  >
-                    <Plus size={16} color="#FFFFFF" strokeWidth={3} />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.timeAdjustBtnSmall, styles.minusBtn]}
-                    onPress={() => setEditInHour(adjustTime(editInHour, -1, 23))}
-                  >
-                    <Minus size={16} color="#FFFFFF" strokeWidth={3} />
-                  </TouchableOpacity>
-                </View>
-                <Text style={styles.timeValueLarge}>{editInHour}</Text>
-
-                <Text style={styles.timeSeparator}>:</Text>
-
-                <Text style={styles.timeValueLarge}>{editInMinute}</Text>
-                <View style={styles.stackedControls}>
-                  <TouchableOpacity
-                    style={[styles.timeAdjustBtnSmall, styles.addBtn]}
-                    onPress={() => setEditInMinute(adjustTime(editInMinute, 1, 59))}
-                  >
-                    <Plus size={16} color="#FFFFFF" strokeWidth={3} />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.timeAdjustBtnSmall, styles.minusBtn]}
-                    onPress={() => setEditInMinute(adjustTime(editInMinute, -1, 59))}
-                  >
-                    <Minus size={16} color="#FFFFFF" strokeWidth={3} />
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-
-            <View style={styles.timeSection}>
-              <View style={styles.timeSectionHeader}>
-                <Text style={styles.timeSectionLabel}>WAKTU KELUAR</Text>
-                <TouchableOpacity
-                  style={[styles.hasOutToggle, editHasOut && styles.hasOutToggleActive]}
-                  onPress={() => setEditHasOut(!editHasOut)}
-                  activeOpacity={0.8}
-                >
-                  <View style={[styles.hasOutToggleDot, editHasOut && styles.hasOutToggleDotActive]} />
-                </TouchableOpacity>
-              </View>
-
-              {editHasOut ? (
-                <View style={styles.timePicker}>
-                  <View style={styles.stackedControls}>
+                <View style={styles.dateSection}>
+                  <View style={styles.datePickerContainer}>
                     <TouchableOpacity
-                      style={[styles.timeAdjustBtnSmall, styles.addBtn]}
-                      onPress={() => setEditOutHour(adjustTime(editOutHour, 1, 23))}
+                      style={styles.dateNavBtn}
+                      onPress={() => adjustDate(-1)}
+                      activeOpacity={0.7}
                     >
-                      <Plus size={16} color="#FFFFFF" strokeWidth={3} />
+                      <ChevronLeft size={18} color="#64748B" />
                     </TouchableOpacity>
+                    <View style={styles.dateValueWrapper}>
+                      <Text style={styles.datePickerValue}>{formatDateLong(editDate)}</Text>
+                    </View>
                     <TouchableOpacity
-                      style={[styles.timeAdjustBtnSmall, styles.minusBtn]}
-                      onPress={() => setEditOutHour(adjustTime(editOutHour, -1, 23))}
+                      style={styles.dateNavBtn}
+                      onPress={() => adjustDate(1)}
+                      activeOpacity={0.7}
                     >
-                      <Minus size={16} color="#FFFFFF" strokeWidth={3} />
-                    </TouchableOpacity>
-                  </View>
-                  <Text style={styles.timeValueLarge}>{editOutHour}</Text>
-
-                  <Text style={styles.timeSeparator}>:</Text>
-
-                  <Text style={styles.timeValueLarge}>{editOutMinute}</Text>
-                  <View style={styles.stackedControls}>
-                    <TouchableOpacity
-                      style={[styles.timeAdjustBtnSmall, styles.addBtn]}
-                      onPress={() => setEditOutMinute(adjustTime(editOutMinute, 1, 59))}
-                    >
-                      <Plus size={16} color="#FFFFFF" strokeWidth={3} />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.timeAdjustBtnSmall, styles.minusBtn]}
-                      onPress={() => setEditOutMinute(adjustTime(editOutMinute, -1, 59))}
-                    >
-                      <Minus size={16} color="#FFFFFF" strokeWidth={3} />
+                      <ChevronRight size={18} color="#64748B" />
                     </TouchableOpacity>
                   </View>
                 </View>
-              ) : (
-                <View style={styles.noOutTimeContainer}>
-                  <Text style={styles.noOutTimeText}>Belum ada waktu keluar</Text>
-                  <Text style={styles.noOutTimeSubtext}>(Sesi masih aktif)</Text>
+
+                <View style={styles.timeSection}>
+                  {/* <Text style={styles.timeSectionLabel}>JAM MASUK</Text> */}
+                  <View style={styles.timePicker}>
+                    <View style={styles.stackedControls}>
+                      <TouchableOpacity
+                        style={[styles.timeAdjustBtnSmall, styles.addBtn]}
+                        onPress={() => setEditInHour(adjustTime(editInHour, 1, 23))}
+                      >
+                        <Plus size={16} color="#FFFFFF" strokeWidth={3} />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.timeAdjustBtnSmall, styles.minusBtn]}
+                        onPress={() => setEditInHour(adjustTime(editInHour, -1, 23))}
+                      >
+                        <Minus size={16} color="#FFFFFF" strokeWidth={3} />
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={styles.timeValueLarge}>{editInHour}</Text>
+
+                    <Text style={styles.timeSeparator}>:</Text>
+
+                    <Text style={styles.timeValueLarge}>{editInMinute}</Text>
+                    <View style={styles.stackedControls}>
+                      <TouchableOpacity
+                        style={[styles.timeAdjustBtnSmall, styles.addBtn]}
+                        onPress={() => setEditInMinute(adjustTime(editInMinute, 1, 59))}
+                      >
+                        <Plus size={16} color="#FFFFFF" strokeWidth={3} />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.timeAdjustBtnSmall, styles.minusBtn]}
+                        onPress={() => setEditInMinute(adjustTime(editInMinute, -1, 59))}
+                      >
+                        <Minus size={16} color="#FFFFFF" strokeWidth={3} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
                 </View>
-              )}
-            </View>
+              </View>
+
+              <View style={styles.editFormGroup}>
+                <View style={styles.timeSectionHeader}>
+                  <Text style={styles.editFormGroupTitle}>Keluar</Text>
+                  <TouchableOpacity
+                    style={[styles.hasOutToggle, editHasOut && styles.hasOutToggleActive]}
+                    onPress={() => setEditHasOut(!editHasOut)}
+                    activeOpacity={0.8}
+                  >
+                    <View style={[styles.hasOutToggleDot, editHasOut && styles.hasOutToggleDotActive]} />
+                  </TouchableOpacity>
+                </View>
+
+                {editHasOut && (
+                  <View style={styles.dateSection}>
+                    <View style={styles.datePickerContainer}>
+                      <TouchableOpacity
+                        style={styles.dateNavBtn}
+                        onPress={() => adjustOutDate(-1)}
+                        activeOpacity={0.7}
+                      >
+                        <ChevronLeft size={18} color="#64748B" />
+                      </TouchableOpacity>
+                      <View style={styles.dateValueWrapper}>
+                        <Text style={styles.datePickerValue}>{formatDateLong(editOutDate)}</Text>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.dateNavBtn}
+                        onPress={() => adjustOutDate(1)}
+                        activeOpacity={0.7}
+                      >
+                        <ChevronRight size={18} color="#64748B" />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
+                <View style={styles.timeSection}>
+                  {/* <Text style={styles.timeSectionLabel}>JAM KELUAR</Text> */}
+
+                  {editHasOut ? (
+                    <View style={styles.timePicker}>
+                      <View style={styles.stackedControls}>
+                        <TouchableOpacity
+                          style={[styles.timeAdjustBtnSmall, styles.addBtn]}
+                          onPress={() => setEditOutHour(adjustTime(editOutHour, 1, 23))}
+                        >
+                          <Plus size={16} color="#FFFFFF" strokeWidth={3} />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.timeAdjustBtnSmall, styles.minusBtn]}
+                          onPress={() => setEditOutHour(adjustTime(editOutHour, -1, 23))}
+                        >
+                          <Minus size={16} color="#FFFFFF" strokeWidth={3} />
+                        </TouchableOpacity>
+                      </View>
+                      <Text style={styles.timeValueLarge}>{editOutHour}</Text>
+
+                      <Text style={styles.timeSeparator}>:</Text>
+
+                      <Text style={styles.timeValueLarge}>{editOutMinute}</Text>
+                      <View style={styles.stackedControls}>
+                        <TouchableOpacity
+                          style={[styles.timeAdjustBtnSmall, styles.addBtn]}
+                          onPress={() => setEditOutMinute(adjustTime(editOutMinute, 1, 59))}
+                        >
+                          <Plus size={16} color="#FFFFFF" strokeWidth={3} />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.timeAdjustBtnSmall, styles.minusBtn]}
+                          onPress={() => setEditOutMinute(adjustTime(editOutMinute, -1, 59))}
+                        >
+                          <Minus size={16} color="#FFFFFF" strokeWidth={3} />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ) : (
+                    <View style={styles.noOutTimeContainer}>
+                      <Text style={styles.noOutTimeText}>Belum ada waktu keluar</Text>
+                      <Text style={styles.noOutTimeSubtext}>(Sesi masih aktif)</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            </ScrollView>
 
             <View style={styles.editModalActions}>
               <TouchableOpacity
@@ -460,7 +505,6 @@ export default function SessionRow({ date, sessions, compact = false, isFirstInM
                 onPress={() => setEditModalVisible(false)}
                 activeOpacity={0.85}
               >
-                {/* <X size={20} color="#94A3B8" /> */}
                 <Text style={styles.editModalCancelText}>Batal</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -593,11 +637,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   outBlock: {
+    // width: 90,
     flex: 1,
     borderRadius: 24,
     paddingVertical: 10,
     paddingHorizontal: 14,
     alignItems: 'center',
+    // gap: 2,
   },
   activeBlock: {
     flex: 1,
@@ -765,8 +811,9 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     paddingTop: 24,
-    paddingBottom: 40,
+    paddingBottom: 18,
     paddingHorizontal: 24,
+    maxHeight: '86%',
   },
   editModalHeader: {
     alignItems: 'center',
@@ -791,6 +838,22 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#64748B',
     fontWeight: '600',
+  },
+  editModalScroll: {
+    flexGrow: 0,
+  },
+  editModalScrollContent: {
+    paddingBottom: 8,
+    gap: 12,
+  },
+  editFormGroup: {
+    gap: 12,
+  },
+  editFormGroupTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginBottom: 2,
   },
   timeSection: {
     backgroundColor: '#F8FAFC',
@@ -847,9 +910,9 @@ const styles = StyleSheet.create({
   timePicker: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-
-    marginTop: 20,
+    justifyContent: 'center',
+    gap: 10,
+    // marginTop: 12,
   },
   stackedControls: {
     gap: 4,
@@ -875,10 +938,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#F43F5E',
   },
   timeValueLarge: {
-    fontSize: 42,
+    fontSize: 36,
     fontWeight: '800',
     color: '#1E293B',
-    minWidth: 65,
+    minWidth: 56,
     textAlign: 'center',
     fontVariant: ['tabular-nums'],
   },
