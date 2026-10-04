@@ -366,10 +366,7 @@ export default function AttendancePopup({
                         <VerticalTimeSlider
                           hour={editHour}
                           minute={editMinute}
-                          onChange={(h, m) => {
-                            setEditHour(h);
-                            setEditMinute(m);
-                          }}
+                          onChange={handleInTimeChange}
                           accentColor={accentColor}
                         />
                       </View>

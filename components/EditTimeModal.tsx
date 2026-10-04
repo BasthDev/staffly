@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -47,6 +47,16 @@ export default function EditTimeModal({
   const [outMinute, setOutMinute] = useState('00');
   const [hasOut, setHasOut] = useState(defaultHasOut);
   const [isSaving, setIsSaving] = useState(false);
+
+  const handleInTimeChange = useCallback((h: string, m: string) => {
+    setInHour(h);
+    setInMinute(m);
+  }, []);
+
+  const handleOutTimeChange = useCallback((h: string, m: string) => {
+    setOutHour(h);
+    setOutMinute(m);
+  }, []);
 
   const slideAnim = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -156,10 +166,7 @@ export default function EditTimeModal({
                 <VerticalTimeSlider
                   hour={inHour}
                   minute={inMinute}
-                  onChange={(h, m) => {
-                    setInHour(h);
-                    setInMinute(m);
-                  }}
+                  onChange={handleInTimeChange}
                   accentColor="#29b0f9"
                 />
               </View>
@@ -196,10 +203,7 @@ export default function EditTimeModal({
                   <VerticalTimeSlider
                     hour={outHour}
                     minute={outMinute}
-                    onChange={(h, m) => {
-                      setOutHour(h);
-                      setOutMinute(m);
-                    }}
+                    onChange={handleOutTimeChange}
                     accentColor="#F43F5E"
                   />
                 ) : (

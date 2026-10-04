@@ -7,6 +7,7 @@ import {
   NativeSyntheticEvent,
   NativeScrollEvent,
   Animated,
+  Platform,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { ChevronUp, ChevronDown } from 'lucide-react-native';
@@ -28,6 +29,8 @@ const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'))
 
 // -------------------------------------------------------------
 // Animated Wheel Item
+// Note: We wrap the Text in an Animated.View to prevent Android
+// font re-rasterization jitter / flickering during scaling.
 // -------------------------------------------------------------
 interface WheelItemProps {
   item: string;
@@ -54,7 +57,7 @@ const AnimatedWheelItem = React.memo(function AnimatedWheelItem({
 
   const scale = scrollY.interpolate({
     inputRange,
-    outputRange: [0.55, 0.7, 1.25, 0.7, 0.55],
+    outputRange: [0.65, 0.75, 1.2, 0.75, 0.65],
     extrapolate: 'clamp',
   });
 
@@ -70,18 +73,26 @@ const AnimatedWheelItem = React.memo(function AnimatedWheelItem({
       onPress={() => onPress(item)}
       activeOpacity={0.6}
     >
-      <Animated.Text
+      <Animated.View
         style={[
-          styles.itemText,
+          styles.itemAnimatedContainer,
           {
-            color: accentColor || '#1E293B',
             opacity,
             transform: [{ scale }],
           },
         ]}
       >
-        {item}
-      </Animated.Text>
+        <Text
+          style={[
+            styles.itemText,
+            {
+              color: accentColor || '#1E293B',
+            },
+          ]}
+        >
+          {item}
+        </Text>
+      </Animated.View>
     </TouchableOpacity>
   );
 });
@@ -103,17 +114,16 @@ const WheelColumn = React.memo(function WheelColumn({
   accentColor,
 }: WheelColumnProps) {
   const scrollRef = useRef<any>(null);
-  
-  // FIX: Find the initial index and set it instantly
+
   const initialIndex = Math.max(0, data.indexOf(selectedValue));
   const lastIndexRef = useRef<number>(initialIndex);
-  
-  // FIX: Initialize the animation state EXACTLY where the selected value is
   const scrollY = useRef(new Animated.Value(initialIndex * ITEM_HEIGHT)).current;
 
   const isUserScrollingRef = useRef(false);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasMountedRef = useRef(false);
 
+  // Sync when selectedValue changes externally (e.g. from state change or modal open)
   useEffect(() => {
     if (!isUserScrollingRef.current) {
       const idx = data.indexOf(selectedValue);
@@ -121,12 +131,23 @@ const WheelColumn = React.memo(function WheelColumn({
 
       if (newIdx !== lastIndexRef.current) {
         lastIndexRef.current = newIdx;
+        scrollY.setValue(newIdx * ITEM_HEIGHT);
         if (scrollRef.current) {
-          scrollRef.current.scrollTo({ y: newIdx * ITEM_HEIGHT, animated: true });
+          scrollRef.current.scrollTo({ y: newIdx * ITEM_HEIGHT, animated: false });
         }
       }
     }
-  }, [selectedValue, data]);
+  }, [selectedValue, data, scrollY]);
+
+  // Android initial scroll guarantee without visual jump
+  const handleLayout = useCallback(() => {
+    if (!hasMountedRef.current) {
+      hasMountedRef.current = true;
+      if (initialIndex > 0 && scrollRef.current) {
+        scrollRef.current.scrollTo({ y: initialIndex * ITEM_HEIGHT, animated: false });
+      }
+    }
+  }, [initialIndex]);
 
   useEffect(() => {
     return () => {
@@ -134,26 +155,35 @@ const WheelColumn = React.memo(function WheelColumn({
     };
   }, []);
 
-  const handleScrollListener = useCallback(
-    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      if (!isUserScrollingRef.current) return;
-
-      const offsetY = e.nativeEvent.contentOffset.y;
+  // Called when scrolling has officially stopped/settled to commit selection
+  const settleScroll = useCallback(
+    (offsetY: number) => {
       const index = Math.round(offsetY / ITEM_HEIGHT);
       const clampedIndex = Math.max(0, Math.min(data.length - 1, index));
 
       if (clampedIndex !== lastIndexRef.current) {
         lastIndexRef.current = clampedIndex;
         Haptics.selectionAsync().catch(() => {});
+        onSelect(data[clampedIndex]);
       }
+
+      isUserScrollingRef.current = false;
+    },
+    [data, onSelect]
+  );
+
+  // Fallback safety timer while scrolling in case onMomentumScrollEnd doesn't fire
+  const handleScrollListener = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (!isUserScrollingRef.current) return;
+      const offsetY = e.nativeEvent.contentOffset.y;
 
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = setTimeout(() => {
-        isUserScrollingRef.current = false;
-        onSelect(data[lastIndexRef.current]);
-      }, 150); 
+        settleScroll(offsetY);
+      }, 180);
     },
-    [data, onSelect]
+    [settleScroll]
   );
 
   const animatedScrollHandler = Animated.event(
@@ -225,17 +255,31 @@ const WheelColumn = React.memo(function WheelColumn({
           snapToAlignment="center"
           decelerationRate="fast"
           nestedScrollEnabled={true}
+          overScrollMode="never"
+          removeClippedSubviews={false}
           scrollEventThrottle={16}
+          onLayout={handleLayout}
           onScrollBeginDrag={() => {
             isUserScrollingRef.current = true;
           }}
           onMomentumScrollBegin={() => {
             isUserScrollingRef.current = true;
           }}
+          onMomentumScrollEnd={(e) => {
+            if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+            settleScroll(e.nativeEvent.contentOffset.y);
+          }}
+          onScrollEndDrag={(e) => {
+            const vy = Math.abs(e.nativeEvent.velocity?.y ?? 0);
+            if (vy < 0.05) {
+              if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+              settleScroll(e.nativeEvent.contentOffset.y);
+            }
+          }}
           onScroll={animatedScrollHandler}
-          contentOffset={{ x: 0, y: initialIndex * ITEM_HEIGHT }} // FIX: Starts cleanly at the same index
+          contentOffset={{ x: 0, y: initialIndex * ITEM_HEIGHT }}
           contentContainerStyle={{
-            paddingVertical: ITEM_HEIGHT, 
+            paddingVertical: ITEM_HEIGHT,
           }}
           style={styles.wheelScroll}
         >
@@ -266,6 +310,8 @@ const WheelColumn = React.memo(function WheelColumn({
 
 // -------------------------------------------------------------
 // Main Component
+// Uses stable refs to prevent re-creating handler callbacks
+// when sibling value (hour vs minute) changes.
 // -------------------------------------------------------------
 export default React.memo(function VerticalTimeSlider({
   hour,
@@ -273,19 +319,22 @@ export default React.memo(function VerticalTimeSlider({
   onChange,
   accentColor = '#29b0f9',
 }: VerticalTimeSliderProps) {
-  const handleHourSelect = useCallback(
-    (newHour: string) => {
-      onChange(newHour, minute);
-    },
-    [minute, onChange]
-  );
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
 
-  const handleMinuteSelect = useCallback(
-    (newMinute: string) => {
-      onChange(hour, newMinute);
-    },
-    [hour, onChange]
-  );
+  const hourRef = useRef(hour);
+  hourRef.current = hour;
+
+  const minuteRef = useRef(minute);
+  minuteRef.current = minute;
+
+  const handleHourSelect = useCallback((newHour: string) => {
+    onChangeRef.current(newHour, minuteRef.current);
+  }, []);
+
+  const handleMinuteSelect = useCallback((newMinute: string) => {
+    onChangeRef.current(hourRef.current, newMinute);
+  }, []);
 
   return (
     <View style={styles.sliderRow}>
@@ -341,8 +390,8 @@ const styles = StyleSheet.create({
   selectionLens: {
     position: 'absolute',
     top: ITEM_HEIGHT,
-    left: 4, 
-    right: 4, 
+    left: 4,
+    right: 4,
     height: ITEM_HEIGHT,
     borderRadius: 10,
     borderWidth: 1.5,
@@ -354,11 +403,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     zIndex: 2,
   },
+  itemAnimatedContainer: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   itemText: {
     fontVariant: ['tabular-nums'],
     textAlign: 'center',
     fontSize: 22,
-    fontWeight: '700', 
+    fontWeight: '700',
+    includeFontPadding: false,
   },
   separatorContainer: {
     height: WHEEL_HEIGHT,
@@ -371,5 +426,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#94A3B8',
     lineHeight: 32,
+    includeFontPadding: false,
   },
 });

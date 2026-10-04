@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View, TouchableOpacity, Modal, ScrollView, Animated } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Session } from '@/lib/database';
@@ -61,6 +61,16 @@ export default function SessionRow({
   const [editOutHour, setEditOutHour] = useState('00');
   const [editOutMinute, setEditOutMinute] = useState('00');
   const [editHasOut, setEditHasOut] = useState(false);
+
+  const handleEditInTimeChange = useCallback((h: string, m: string) => {
+    setEditInHour(h);
+    setEditInMinute(m);
+  }, []);
+
+  const handleEditOutTimeChange = useCallback((h: string, m: string) => {
+    setEditOutHour(h);
+    setEditOutMinute(m);
+  }, []);
 
   // Animation values for Edit Modal
   const slideAnim = useRef(new Animated.Value(0)).current;
@@ -431,10 +441,7 @@ export default function SessionRow({
                   <VerticalTimeSlider
                     hour={editInHour}
                     minute={editInMinute}
-                    onChange={(h, m) => {
-                      setEditInHour(h);
-                      setEditInMinute(m);
-                    }}
+                    onChange={handleEditInTimeChange}
                     accentColor="#29b0f9"
                   />
                 </View>
@@ -465,10 +472,7 @@ export default function SessionRow({
                     <VerticalTimeSlider
                       hour={editOutHour}
                       minute={editOutMinute}
-                      onChange={(h, m) => {
-                        setEditOutHour(h);
-                        setEditOutMinute(m);
-                      }}
+                      onChange={handleEditOutTimeChange}
                       accentColor="#F43F5E"
                     />
                   ) : (
