@@ -2,7 +2,7 @@
   "expo": {
     "name": "Staffly",
     "slug": "staffly",
-    "version": "1.0.0",
+    "version": "2.0.2",
     "orientation": "portrait",
     "icon": "./assets/images/Staffly.png",
     "scheme": "staffly",
@@ -14,8 +14,8 @@
       "backgroundColor": "#ffffff"
     },
     "android": {
-      "package": "com.basthdev.staffly",
-      "versionCode": 1,
+      "package": "id.my.basth.staffly",
+      "versionCode": 4,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/Staffly.png",
         "backgroundColor": "#ffffff"
@@ -23,7 +23,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.basthdev.staffly"
+      "bundleIdentifier": "id.my.basth.staffly"
     },
     "web": {
       "bundler": "metro",
@@ -34,8 +34,25 @@
       "expo-router",
       "expo-font",
       "expo-web-browser",
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-updates",
+      [
+        "expo-navigation-bar",
+        {
+          "position": "relative",
+          "visibility": "visible",
+          "behavior": "inset-swipe",
+          "backgroundColor": "#FFFFFF",
+          "barStyle": "dark-content"
+        }
+      ]
     ],
+    "updates": {
+      "url": "https://u.expo.dev/9d105859-60cd-4826-bebe-99f86d9539e5"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "experiments": {
       "typedRoutes": true
     },

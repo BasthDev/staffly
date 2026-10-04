@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   ScrollView,
   StyleSheet,
@@ -32,17 +33,16 @@ export default function HomeScreen() {
     todaySessions,
     places,
     currentPlaceId,
-    loadPlaces,
+    loadInitial,
     setCurrentPlace,
     addPlace,
     renamePlace,
-    loadToday,
-    loadAll,
     checkIn,
     checkOut,
     canCheckOut,
     deleteSession,
     updateSession,
+    isInitialized,
   } = useAttendanceStore();
 
   // 🔥 LOGIC
@@ -60,16 +60,16 @@ export default function HomeScreen() {
   const [editingPlaceId, setEditingPlaceId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
 
+  // ─── Button processing states (prevent double-tap) ───────────────────────
+  const [placeActionLoading, setPlaceActionLoading] = useState(false);
+
   const inScale = useRef(new Animated.Value(1)).current;
   const outScale = useRef(new Animated.Value(1)).current;
 
+  // Load all data in one batch on mount
   useEffect(() => {
-    (async () => {
-      await loadPlaces();
-      await loadToday();
-      await loadAll();
-    })();
-  }, [loadPlaces, loadToday, loadAll]);
+    loadInitial();
+  }, [loadInitial]);
 
   useEffect(() => {
     if (showPlacePicker) {
@@ -110,6 +110,17 @@ export default function HomeScreen() {
   const today = new Date();
   const todayKey = getTodayKey();
   const currentPlaceName = places.find((p) => p.id === currentPlaceId)?.name || 'Default';
+
+  // ─── Loading skeleton (shown until first data load completes) ─────────────
+  if (!isInitialized) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#29b0f9" />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -307,19 +318,31 @@ export default function HomeScreen() {
                               setEditingName('');
                             }}
                             activeOpacity={0.85}
+                            disabled={placeActionLoading}
                           >
                             <Text style={styles.editPlaceCancelText}>Batal</Text>
                           </TouchableOpacity>
                           <TouchableOpacity
-                            style={styles.editPlaceSave}
+                            style={[styles.editPlaceSave, placeActionLoading && styles.btnDisabled]}
                             onPress={async () => {
-                              await renamePlace(p.id, editingName);
-                              setEditingPlaceId(null);
-                              setEditingName('');
+                              if (placeActionLoading) return;
+                              setPlaceActionLoading(true);
+                              try {
+                                await renamePlace(p.id, editingName);
+                                setEditingPlaceId(null);
+                                setEditingName('');
+                              } finally {
+                                setPlaceActionLoading(false);
+                              }
                             }}
                             activeOpacity={0.85}
+                            disabled={placeActionLoading}
                           >
-                            <Text style={styles.editPlaceSaveText}>Simpan</Text>
+                            {placeActionLoading ? (
+                              <ActivityIndicator size="small" color="#FFFFFF" />
+                            ) : (
+                              <Text style={styles.editPlaceSaveText}>Simpan</Text>
+                            )}
                           </TouchableOpacity>
                         </View>
                       </View>
@@ -391,19 +414,31 @@ export default function HomeScreen() {
                         setPlaceDraftName('');
                       }}
                       activeOpacity={0.85}
+                      disabled={placeActionLoading}
                     >
                       <Text style={styles.addPlaceCancelText}>Batal</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={styles.addPlaceSave}
+                      style={[styles.addPlaceSave, placeActionLoading && styles.btnDisabled]}
                       onPress={async () => {
-                        await addPlace(placeDraftName);
-                        setPlaceDraftName('');
-                        setPlaceAdding(false);
+                        if (placeActionLoading) return;
+                        setPlaceActionLoading(true);
+                        try {
+                          await addPlace(placeDraftName);
+                          setPlaceDraftName('');
+                          setPlaceAdding(false);
+                        } finally {
+                          setPlaceActionLoading(false);
+                        }
                       }}
                       activeOpacity={0.85}
+                      disabled={placeActionLoading}
                     >
-                      <Text style={styles.addPlaceSaveText}>Simpan</Text>
+                      {placeActionLoading ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <Text style={styles.addPlaceSaveText}>Simpan</Text>
+                      )}
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -418,6 +453,12 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#FFFFFF' },
+
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   content: {
     paddingHorizontal: 20,
@@ -755,4 +796,6 @@ const styles = StyleSheet.create({
 
   emptyTitle: { marginTop: 6, color: '#94A3B8' },
   emptySubtitle: { color: '#CBD5E1', fontSize: 12 },
+
+  btnDisabled: { opacity: 0.6 },
 });

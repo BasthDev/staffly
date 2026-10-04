@@ -38,7 +38,7 @@ function getMonthYearFromDate(dateStr: string): string {
 }
 
 export default function HistoryScreen() {
-  const { allGrouped, monthlyGrouped, monthlyTotalHours, loading, loadMonthly, loadAll, deleteSession, updateSession, insertManualSession, places, currentPlaceId } = useAttendanceStore();
+  const { allGrouped, monthlyGrouped, monthlyTotalHours, loading, loadMonthly, loadAll, reloadAll, deleteSession, updateSession, insertManualSession, places, currentPlaceId, isInitialized } = useAttendanceStore();
   const currentPlaceName = places.find((p) => p.id === currentPlaceId)?.name || 'Default';
   const currentMonthKey = getCurrentMonthKey();
 
@@ -244,15 +244,18 @@ export default function HistoryScreen() {
 
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([loadAll(), loadMonthly()]);
+    await reloadAll();
     setRefreshing(false);
-  }, [loadAll, loadMonthly]);
+  }, [reloadAll]);
 
+  // Only reload on focus when data is already initialized (avoids double-load on first mount).
+  // The home screen's loadInitial handles the first load for the whole app.
   useFocusEffect(
     React.useCallback(() => {
-      loadAll();
-      loadMonthly();
-    }, [loadAll, loadMonthly])
+      if (isInitialized) {
+        reloadAll();
+      }
+    }, [isInitialized, reloadAll])
   );
 
   // Determine which months to show

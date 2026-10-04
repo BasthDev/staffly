@@ -1,4 +1,4 @@
-package com.basthdev.staffly
+package id.my.basth.staffly
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

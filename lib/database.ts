@@ -518,13 +518,22 @@ export async function getSessionsByDateRange(startDate: string, endDate: string,
 }
 
 export async function getSessionsGroupedByDate(placeId: string): Promise<{ date: string; sessions: Session[] }[]> {
-  const dates = await getAllDates(placeId);
-  const result = [];
-  for (const date of dates) {
-    const sessions = await getSessionsByDate(date, placeId);
-    result.push({ date, sessions });
-  }
-  return result;
+  // Single query — fetch all sessions for the place, then group in memory (no N+1 loop)
+  return withDbRecovery(async (db) => {
+    const allDates = await db.getAllDates(placeId);
+    if (allDates.length === 0) return [];
+    // Fetch all sessions in one call using the date range approach
+    const allSessions = await db.getSessionsByDateRange(allDates[allDates.length - 1], allDates[0], placeId);
+    const grouped: { [date: string]: Session[] } = {};
+    for (const s of allSessions) {
+      if (!grouped[s.date]) grouped[s.date] = [];
+      grouped[s.date].push(s);
+    }
+    // Return in descending date order (matching allDates which is already DESC)
+    return allDates
+      .filter((date) => grouped[date])
+      .map((date) => ({ date, sessions: grouped[date] }));
+  });
 }
 
 export async function getSessionsGroupedByDateRange(startDate: string, endDate: string, placeId: string): Promise<{ date: string; sessions: Session[] }[]> {

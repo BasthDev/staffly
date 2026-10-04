@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   Modal,
   ScrollView,
@@ -9,8 +10,9 @@ import {
   TouchableWithoutFeedback,
   View,
 } from 'react-native';
-import { LogIn, LogOut, Clock, Calendar, CircleCheck as CheckCircle2, Edit3, ChevronLeft, ChevronRight, Plus, Minus } from 'lucide-react-native';
+import { LogIn, LogOut, Clock, Calendar, CircleCheck as CheckCircle2, Edit3, ChevronLeft, ChevronRight, Plus } from 'lucide-react-native';
 import { formatDateLong, formatCurrentTimeSeconds } from '@/lib/dateUtils';
+import VerticalTimeSlider from './VerticalTimeSlider';
 
 interface AttendancePopupProps {
   visible: boolean;
@@ -50,7 +52,6 @@ export default function AttendancePopup({
 
   // Out date editing state for MANUAL mode
   const [selectedOutDate, setSelectedOutDate] = useState(new Date());
-  const [isEditingOutDate, setIsEditingOutDate] = useState(false);
 
   // Reset and animate on visibility change
   useEffect(() => {
@@ -80,7 +81,6 @@ export default function AttendancePopup({
 
       // Initialize out date to today for MANUAL mode
       setSelectedOutDate(new Date());
-      setIsEditingOutDate(false);
 
       // Initialize date to today
       setSelectedDate(new Date());
@@ -126,26 +126,27 @@ export default function AttendancePopup({
   }, [visible, fadeAnim, slideAnim]);
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || type === 'MANUAL') return;
     const interval = setInterval(() => {
       setLiveTime(formatCurrentTimeSeconds());
     }, 1000);
     return () => clearInterval(interval);
-  }, [visible]);
+  }, [visible, type]);
+
+  const handleInTimeChange = useCallback((h: string, m: string) => {
+    setEditHour(h);
+    setEditMinute(m);
+  }, []);
+
+  const handleOutTimeChange = useCallback((h: string, m: string) => {
+    setEditOutHour(h);
+    setEditOutMinute(m);
+  }, []);
 
   const isIn = type === 'MASUK';
   const isManual = type === 'MANUAL';
   const accentColor = isManual ? '#10B981' : (isIn ? '#29b0f9' : '#F43F5E');
   const bgAccent = isManual ? '#ECFDF5' : (isIn ? '#ecf5fd' : '#FFF1F2');
-  const today = new Date();
-
-  const adjustTime = (value: string, delta: number, max: number) => {
-    const num = parseInt(value, 10) || 0;
-    const newValue = num + delta;
-    if (newValue < 0) return String(max).padStart(2, '0');
-    if (newValue > max) return '00';
-    return String(newValue).padStart(2, '0');
-  };
 
   const adjustDate = (delta: number) => {
     const newDate = new Date(selectedDate);
@@ -222,6 +223,8 @@ export default function AttendancePopup({
                   ? `Berhasil Absen ${isManual ? 'MANUAL' : isIn ? 'MASUK' : 'KELUAR'}`
                   : isManual
                   ? 'Catat waktu yang terlewat!'
+                  : isIn
+                  ? 'Mulai sesi anda untuk saat ini'
                   : 'Akhiri sesi anda untuk saat ini'}
               </Text>
 
@@ -257,39 +260,12 @@ export default function AttendancePopup({
                     </View>
 
                     <View style={styles.timeSection}>
-                      <View style={styles.timePicker}>
-                        <View style={styles.stackedControls}>
-                          <TouchableOpacity
-                            style={[styles.timeAdjustBtnSmall, styles.addBtn]}
-                            onPress={() => setEditHour(adjustTime(editHour, 1, 23))}
-                          >
-                            <Plus size={16} color="#FFFFFF" strokeWidth={3} />
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={[styles.timeAdjustBtnSmall, styles.minusBtn]}
-                            onPress={() => setEditHour(adjustTime(editHour, -1, 23))}
-                          >
-                            <Minus size={16} color="#FFFFFF" strokeWidth={3} />
-                          </TouchableOpacity>
-                        </View>
-                        <Text style={styles.timeValueLarge}>{editHour}</Text>
-                        <Text style={styles.timeSeparator}>:</Text>
-                        <Text style={styles.timeValueLarge}>{editMinute}</Text>
-                        <View style={styles.stackedControls}>
-                          <TouchableOpacity
-                            style={[styles.timeAdjustBtnSmall, styles.addBtn]}
-                            onPress={() => setEditMinute(adjustTime(editMinute, 1, 59))}
-                          >
-                            <Plus size={16} color="#FFFFFF" strokeWidth={3} />
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={[styles.timeAdjustBtnSmall, styles.minusBtn]}
-                            onPress={() => setEditMinute(adjustTime(editMinute, -1, 59))}
-                          >
-                            <Minus size={16} color="#FFFFFF" strokeWidth={3} />
-                          </TouchableOpacity>
-                        </View>
-                      </View>
+                      <VerticalTimeSlider
+                        hour={editHour}
+                        minute={editMinute}
+                        onChange={handleInTimeChange}
+                        accentColor={accentColor}
+                      />
                     </View>
                   </View>
 
@@ -319,39 +295,12 @@ export default function AttendancePopup({
                     </View>
 
                     <View style={styles.timeSection}>
-                      <View style={styles.timePicker}>
-                        <View style={styles.stackedControls}>
-                          <TouchableOpacity
-                            style={[styles.timeAdjustBtnSmall, styles.addBtn]}
-                            onPress={() => setEditOutHour(adjustTime(editOutHour, 1, 23))}
-                          >
-                            <Plus size={16} color="#FFFFFF" strokeWidth={3} />
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={[styles.timeAdjustBtnSmall, styles.minusBtn]}
-                            onPress={() => setEditOutHour(adjustTime(editOutHour, -1, 23))}
-                          >
-                            <Minus size={16} color="#FFFFFF" strokeWidth={3} />
-                          </TouchableOpacity>
-                        </View>
-                        <Text style={styles.timeValueLarge}>{editOutHour}</Text>
-                        <Text style={styles.timeSeparator}>:</Text>
-                        <Text style={styles.timeValueLarge}>{editOutMinute}</Text>
-                        <View style={styles.stackedControls}>
-                          <TouchableOpacity
-                            style={[styles.timeAdjustBtnSmall, styles.addBtn]}
-                            onPress={() => setEditOutMinute(adjustTime(editOutMinute, 1, 59))}
-                          >
-                            <Plus size={16} color="#FFFFFF" strokeWidth={3} />
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={[styles.timeAdjustBtnSmall, styles.minusBtn]}
-                            onPress={() => setEditOutMinute(adjustTime(editOutMinute, -1, 59))}
-                          >
-                            <Minus size={16} color="#FFFFFF" strokeWidth={3} />
-                          </TouchableOpacity>
-                        </View>
-                      </View>
+                      <VerticalTimeSlider
+                        hour={editOutHour}
+                        minute={editOutMinute}
+                        onChange={handleOutTimeChange}
+                        accentColor={accentColor}
+                      />
                     </View>
                   </View>
                 </ScrollView>
@@ -395,63 +344,35 @@ export default function AttendancePopup({
                     )}
                   </View>
                   <View style={styles.divider} />
-                  <View style={styles.infoRow}>
-                    <Clock size={16} color="#64748B" strokeWidth={2} />
-                    {!isEditingTime && <Text style={styles.infoLabel}>Waktu</Text>}
-                    {isEditingTime ? (
-                      <View style={styles.timePickerContainer}>
-                        <View style={styles.timePicker}>
-                          <TouchableOpacity
-                            style={styles.timeAdjustBtn}
-                            onPress={() => setEditHour(adjustTime(editHour, 1, 23))}
-                            activeOpacity={0.7}
-                          >
-                            <Text style={styles.timeAdjustText}>+</Text>
-                          </TouchableOpacity>
-                          <View style={styles.timeValueWrapper}>
-                            <Text style={styles.timePickerValue}>{editHour}</Text>
-                          </View>
-                          <TouchableOpacity
-                            style={styles.timeAdjustBtn}
-                            onPress={() => setEditHour(adjustTime(editHour, -1, 23))}
-                            activeOpacity={0.7}
-                          >
-                            <Text style={styles.timeAdjustText}>-</Text>
-                          </TouchableOpacity>
-                        </View>
-                        <Text style={styles.timeSeparator}>:</Text>
-                        <View style={styles.timePicker}>
-                          <TouchableOpacity
-                            style={styles.timeAdjustBtn}
-                            onPress={() => setEditMinute(adjustTime(editMinute, 1, 59))}
-                            activeOpacity={0.7}
-                          >
-                            <Text style={styles.timeAdjustText}>+</Text>
-                          </TouchableOpacity>
-                          <View style={styles.timeValueWrapper}>
-                            <Text style={styles.timePickerValue}>{editMinute}</Text>
-                          </View>
-                          <TouchableOpacity
-                            style={styles.timeAdjustBtn}
-                            onPress={() => setEditMinute(adjustTime(editMinute, -1, 59))}
-                            activeOpacity={0.7}
-                          >
-                            <Text style={styles.timeAdjustText}>-</Text>
-                          </TouchableOpacity>
-                        </View>
+                  <View style={[styles.infoRow, isEditingTime && styles.infoRowTimeEditing]}>
+                    <View style={styles.infoRowHeader}>
+                      <Clock size={16} color="#64748B" strokeWidth={2} />
+                      <Text style={styles.infoLabel}>Waktu</Text>
+                      {!isEditingTime && (
+                        <Text style={[styles.infoValue, styles.timeValue]}>{liveTime}</Text>
+                      )}
+                      {allowEdit && (
+                        <TouchableOpacity
+                          style={styles.editTimeBtn}
+                          onPress={() => setIsEditingTime(!isEditingTime)}
+                          activeOpacity={0.7}
+                        >
+                          <Edit3 size={14} color={isEditingTime ? accentColor : "#64748B"} />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                    {isEditingTime && (
+                      <View style={styles.inlineSliderContainer}>
+                        <VerticalTimeSlider
+                          hour={editHour}
+                          minute={editMinute}
+                          onChange={(h, m) => {
+                            setEditHour(h);
+                            setEditMinute(m);
+                          }}
+                          accentColor={accentColor}
+                        />
                       </View>
-                    ) : (
-                      <Text style={[styles.infoValue, styles.timeValue]}>{liveTime}</Text>
-                    )}
-                    {isEditingTime && <View style={{ flex: 1 }} />}
-                    {allowEdit && (
-                      <TouchableOpacity
-                        style={styles.editTimeBtn}
-                        onPress={() => setIsEditingTime(!isEditingTime)}
-                        activeOpacity={0.7}
-                      >
-                        <Edit3 size={14} color="#64748B" />
-                      </TouchableOpacity>
                     )}
                   </View>
 
@@ -470,12 +391,6 @@ export default function AttendancePopup({
                 </View>
               )}
 
-              {/* Loading Indicator */}
-              {loading && (
-                <View style={styles.loadingContainer}>
-                  <Text style={styles.loadingText}>Menyimpan...</Text>
-                </View>
-              )}
 
               {/* Error Message */}
               {error && (
@@ -491,25 +406,34 @@ export default function AttendancePopup({
                 </View>
               )}
 
-              {/* Buttons - always show when not loading/confirmed so user can retry or close on error */}
-              {!loading && !confirmed && (
+              {/* Confirm + Cancel buttons — always visible, spinner shown inline when loading */}
+              {!confirmed && (
                 <>
                   <TouchableOpacity
-                    style={[styles.confirmBtn, { backgroundColor: accentColor }]}
+                    style={[styles.confirmBtn, { backgroundColor: accentColor }, loading && styles.confirmBtnLoading]}
                     onPress={handleConfirm}
                     activeOpacity={0.85}
+                    disabled={loading}
                   >
-                    <Text style={styles.confirmBtnText}>
-                      {error ? 'Coba Lagi' : 'Konfirmasi Absen'}
-                    </Text>
+                    {loading ? (
+                      <View style={styles.confirmBtnInner}>
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                        <Text style={styles.confirmBtnText}>Menyimpan...</Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.confirmBtnText}>
+                        {error ? 'Coba Lagi' : 'Konfirmasi Absen'}
+                      </Text>
+                    )}
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={styles.cancelBtn}
+                    style={[styles.cancelBtn, loading && styles.cancelBtnDisabled]}
                     onPress={onCancel}
                     activeOpacity={0.7}
+                    disabled={loading}
                   >
-                    <Text style={styles.cancelBtnText}>Batalkan</Text>
+                    <Text style={[styles.cancelBtnText, loading && styles.cancelBtnTextDisabled]}>Batalkan</Text>
                   </TouchableOpacity>
                 </>
               )}
@@ -650,6 +574,24 @@ const styles = StyleSheet.create({
     height: 60,
     gap: 10,
   },
+  infoRowTimeEditing: {
+    height: 'auto',
+    paddingVertical: 14,
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: 6,
+  },
+  infoRowHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    width: '100%',
+  },
+  inlineSliderContainer: {
+    width: '100%',
+    alignItems: 'center',
+    marginTop: 6,
+  },
   infoRowCentered: {
     justifyContent: 'center',
     alignItems: 'center',
@@ -702,6 +644,14 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
+  confirmBtnLoading: {
+    opacity: 0.85,
+  },
+  confirmBtnInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   confirmBtnText: {
     color: '#FFFFFF',
     fontSize: 16,
@@ -713,10 +663,16 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: 'center',
   },
+  cancelBtnDisabled: {
+    opacity: 0.4,
+  },
   cancelBtnText: {
     color: '#94A3B8',
     fontSize: 15,
     fontWeight: '600',
+  },
+  cancelBtnTextDisabled: {
+    color: '#CBD5E1',
   },
   loadingContainer: {
     paddingVertical: 20,

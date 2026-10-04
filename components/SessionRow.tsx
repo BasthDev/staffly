@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Modal, ScrollView } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { ActivityIndicator, StyleSheet, Text, View, TouchableOpacity, Modal, ScrollView, Animated } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Session } from '@/lib/database';
 import { formatDateKey, formatDateLong } from '@/lib/dateUtils';
-import { ArrowRight, Trash2, X, Pencil, MoreVertical, Clock, Check, LogIn, Plus, Minus, ChevronLeft, ChevronRight } from 'lucide-react-native';
+import { ArrowRight, Trash2, X, Pencil, Clock } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import VerticalTimeSlider from './VerticalTimeSlider';
+import FixedDatePicker from './DatePicker';
 
 interface SessionRowProps {
   date: string;
@@ -12,7 +14,13 @@ interface SessionRowProps {
   compact?: boolean;
   isFirstInMonth?: boolean;
   onDeleteSession?: (sessionId: number) => void;
-  onUpdateSession?: (sessionId: number, newDate: string, inTime: string, outTime: string | null, outDate?: string | null) => void;
+  onUpdateSession?: (
+    sessionId: number,
+    newDate: string,
+    inTime: string,
+    outTime: string | null,
+    outDate?: string | null
+  ) => void;
 }
 
 function parseTime(timeStr: string): number {
@@ -26,26 +34,67 @@ function formatDuration(minutes: number): string {
   return `${h}j ${m}m`;
 }
 
-export default function SessionRow({ date, sessions, compact = false, isFirstInMonth = false, onDeleteSession, onUpdateSession }: SessionRowProps) {
+export default function SessionRow({
+  date,
+  sessions,
+  compact = false,
+  isFirstInMonth = false,
+  onDeleteSession,
+  onUpdateSession,
+}: SessionRowProps) {
   const [actionModalVisible, setActionModalVisible] = useState(false);
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
 
+  // Loading guards to prevent double-tap
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   // Edit date state
   const [editDate, setEditDate] = useState(new Date());
-  const [isEditingDate, setIsEditingDate] = useState(false);
-
-  // Edit out date state
   const [editOutDate, setEditOutDate] = useState(new Date());
-  const [isEditingOutDate, setIsEditingOutDate] = useState(false);
 
   // Edit time states
-  const [editInHour, setEditInHour] = useState('08');
+  const [editInHour, setEditInHour] = useState('00');
   const [editInMinute, setEditInMinute] = useState('00');
-  const [editOutHour, setEditOutHour] = useState('17');
+  const [editOutHour, setEditOutHour] = useState('00');
   const [editOutMinute, setEditOutMinute] = useState('00');
   const [editHasOut, setEditHasOut] = useState(false);
+
+  // Animation values for Edit Modal
+  const slideAnim = useRef(new Animated.Value(0)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (editModalVisible) {
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(slideAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 150,
+          useNativeDriver: true,
+        }),
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [editModalVisible, fadeAnim, slideAnim]);
 
   const handleLongPress = (session: Session) => {
     if (!onDeleteSession && !onUpdateSession) return;
@@ -67,7 +116,9 @@ export default function SessionRow({ date, sessions, compact = false, isFirstInM
   };
 
   function dateToKey(date: Date): string {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
+      date.getDate()
+    ).padStart(2, '0')}`;
   }
 
   const handleActionDelete = () => {
@@ -75,9 +126,15 @@ export default function SessionRow({ date, sessions, compact = false, isFirstInM
     setDeleteModalVisible(true);
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
+    if (isDeleting) return;
     if (selectedSession && onDeleteSession) {
-      onDeleteSession(selectedSession.id);
+      setIsDeleting(true);
+      try {
+        await (onDeleteSession as (id: number) => Promise<void> | void)(selectedSession.id);
+      } finally {
+        setIsDeleting(false);
+      }
     }
     setDeleteModalVisible(false);
     setSelectedSession(null);
@@ -89,7 +146,6 @@ export default function SessionRow({ date, sessions, compact = false, isFirstInM
     // Parse date from session
     const [y, m, d] = date.split('-').map(Number);
     setEditDate(new Date(y, m - 1, d));
-    setIsEditingDate(true);
 
     if (selectedSession.out_date) {
       const [oy, om, od] = selectedSession.out_date.split('-').map(Number);
@@ -97,19 +153,18 @@ export default function SessionRow({ date, sessions, compact = false, isFirstInM
     } else {
       setEditOutDate(new Date(y, m - 1, d));
     }
-    setIsEditingOutDate(true);
 
     const [inH, inM] = selectedSession.in_time.split(':');
-    setEditInHour(inH || '08');
+    setEditInHour(inH || '00');
     setEditInMinute(inM || '00');
 
     if (selectedSession.out_time) {
       const [outH, outM] = selectedSession.out_time.split(':');
-      setEditOutHour(outH || '17');
+      setEditOutHour(outH || '00');
       setEditOutMinute(outM || '00');
       setEditHasOut(true);
     } else {
-      setEditOutHour('17');
+      setEditOutHour('00');
       setEditOutMinute('00');
       setEditHasOut(false);
     }
@@ -118,25 +173,22 @@ export default function SessionRow({ date, sessions, compact = false, isFirstInM
     setEditModalVisible(true);
   };
 
-  const handleSaveEdit = () => {
-    if (!selectedSession || !onUpdateSession) return;
+  const handleSaveEdit = async () => {
+    if (!selectedSession || !onUpdateSession || isSaving) return;
 
     const newDate = dateToKey(editDate);
     const newInTime = `${editInHour}:${editInMinute}`;
     const newOutTime = editHasOut ? `${editOutHour}:${editOutMinute}` : null;
     const newOutDate = editHasOut ? dateToKey(editOutDate) : null;
 
-    onUpdateSession(selectedSession.id, newDate, newInTime, newOutTime, newOutDate);
+    setIsSaving(true);
+    try {
+      await (onUpdateSession as (...args: any[]) => Promise<void> | void)(selectedSession.id, newDate, newInTime, newOutTime, newOutDate);
+    } finally {
+      setIsSaving(false);
+    }
     setEditModalVisible(false);
     setSelectedSession(null);
-  };
-
-  const adjustTime = (value: string, delta: number, max: number) => {
-    const num = parseInt(value, 10) || 0;
-    const newValue = num + delta;
-    if (newValue < 0) return String(max).padStart(2, '0');
-    if (newValue > max) return '00';
-    return String(newValue).padStart(2, '0');
   };
 
   const pairs = sessions.map((s) => ({
@@ -163,11 +215,13 @@ export default function SessionRow({ date, sessions, compact = false, isFirstInM
   const hasCompletedSessions = totalMinutes > 0;
 
   return (
-    <View style={[
-      styles.container,
-      compact && styles.compact,
-      isFirstInMonth && { borderTopLeftRadius: 0, borderTopRightRadius: 0, borderTopWidth: 0, marginTop: 1 }
-    ]}>
+    <View
+      style={[
+        styles.container,
+        compact && styles.compact,
+        isFirstInMonth && { borderTopLeftRadius: 0, borderTopRightRadius: 0, borderTopWidth: 0, marginTop: 1 },
+      ]}
+    >
       {/* Header with Date and Total Hours */}
       <View style={styles.header}>
         <Text style={styles.date}>{formatDateKey(date)}</Text>
@@ -328,14 +382,30 @@ export default function SessionRow({ date, sessions, compact = false, isFirstInM
 
       {/* Edit Time Modal */}
       <Modal
-        animationType="fade"
+        animationType="none"
         transparent={true}
         visible={editModalVisible}
         onRequestClose={() => setEditModalVisible(false)}
+        statusBarTranslucent
       >
+        <Animated.View style={[styles.editModalOverlay, { opacity: fadeAnim }]}>
+          <Animated.View
+            style={[
+              styles.editModalContentWrapper,
+              {
+                transform: [
+                  {
+                    translateY: slideAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [600, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <View style={styles.handle} />
 
-        <View style={styles.editModalOverlay}>
-          <View style={styles.editModalContentWrapper}>
             <View style={styles.editModalHeader}>
               <View style={styles.editModalIconBg}>
                 <Clock size={28} color="#29b0f9" strokeWidth={2.5} />
@@ -348,69 +418,25 @@ export default function SessionRow({ date, sessions, compact = false, isFirstInM
               style={styles.editModalScroll}
               contentContainerStyle={styles.editModalScrollContent}
               showsVerticalScrollIndicator={false}
+              nestedScrollEnabled={true}
             >
               <View style={styles.editFormGroup}>
                 <Text style={styles.editFormGroupTitle}>Masuk</Text>
 
                 <View style={styles.dateSection}>
-                  <View style={styles.datePickerContainer}>
-                    <TouchableOpacity
-                      style={styles.dateNavBtn}
-                      onPress={() => adjustDate(-1)}
-                      activeOpacity={0.7}
-                    >
-                      <ChevronLeft size={18} color="#64748B" />
-                    </TouchableOpacity>
-                    <View style={styles.dateValueWrapper}>
-                      <Text style={styles.datePickerValue}>{formatDateLong(editDate)}</Text>
-                    </View>
-                    <TouchableOpacity
-                      style={styles.dateNavBtn}
-                      onPress={() => adjustDate(1)}
-                      activeOpacity={0.7}
-                    >
-                      <ChevronRight size={18} color="#64748B" />
-                    </TouchableOpacity>
-                  </View>
+                  <FixedDatePicker date={editDate} onAdjust={adjustDate} />
                 </View>
 
                 <View style={styles.timeSection}>
-                  {/* <Text style={styles.timeSectionLabel}>JAM MASUK</Text> */}
-                  <View style={styles.timePicker}>
-                    <View style={styles.stackedControls}>
-                      <TouchableOpacity
-                        style={[styles.timeAdjustBtnSmall, styles.addBtn]}
-                        onPress={() => setEditInHour(adjustTime(editInHour, 1, 23))}
-                      >
-                        <Plus size={16} color="#FFFFFF" strokeWidth={3} />
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.timeAdjustBtnSmall, styles.minusBtn]}
-                        onPress={() => setEditInHour(adjustTime(editInHour, -1, 23))}
-                      >
-                        <Minus size={16} color="#FFFFFF" strokeWidth={3} />
-                      </TouchableOpacity>
-                    </View>
-                    <Text style={styles.timeValueLarge}>{editInHour}</Text>
-
-                    <Text style={styles.timeSeparator}>:</Text>
-
-                    <Text style={styles.timeValueLarge}>{editInMinute}</Text>
-                    <View style={styles.stackedControls}>
-                      <TouchableOpacity
-                        style={[styles.timeAdjustBtnSmall, styles.addBtn]}
-                        onPress={() => setEditInMinute(adjustTime(editInMinute, 1, 59))}
-                      >
-                        <Plus size={16} color="#FFFFFF" strokeWidth={3} />
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.timeAdjustBtnSmall, styles.minusBtn]}
-                        onPress={() => setEditInMinute(adjustTime(editInMinute, -1, 59))}
-                      >
-                        <Minus size={16} color="#FFFFFF" strokeWidth={3} />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
+                  <VerticalTimeSlider
+                    hour={editInHour}
+                    minute={editInMinute}
+                    onChange={(h, m) => {
+                      setEditInHour(h);
+                      setEditInMinute(m);
+                    }}
+                    accentColor="#29b0f9"
+                  />
                 </View>
               </View>
 
@@ -422,73 +448,29 @@ export default function SessionRow({ date, sessions, compact = false, isFirstInM
                     onPress={() => setEditHasOut(!editHasOut)}
                     activeOpacity={0.8}
                   >
-                    <View style={[styles.hasOutToggleDot, editHasOut && styles.hasOutToggleDotActive]} />
+                    <View
+                      style={[styles.hasOutToggleDot, editHasOut && styles.hasOutToggleDotActive]}
+                    />
                   </TouchableOpacity>
                 </View>
 
                 {editHasOut && (
                   <View style={styles.dateSection}>
-                    <View style={styles.datePickerContainer}>
-                      <TouchableOpacity
-                        style={styles.dateNavBtn}
-                        onPress={() => adjustOutDate(-1)}
-                        activeOpacity={0.7}
-                      >
-                        <ChevronLeft size={18} color="#64748B" />
-                      </TouchableOpacity>
-                      <View style={styles.dateValueWrapper}>
-                        <Text style={styles.datePickerValue}>{formatDateLong(editOutDate)}</Text>
-                      </View>
-                      <TouchableOpacity
-                        style={styles.dateNavBtn}
-                        onPress={() => adjustOutDate(1)}
-                        activeOpacity={0.7}
-                      >
-                        <ChevronRight size={18} color="#64748B" />
-                      </TouchableOpacity>
-                    </View>
+                    <FixedDatePicker date={editOutDate} onAdjust={adjustOutDate} />
                   </View>
                 )}
 
                 <View style={styles.timeSection}>
-                  {/* <Text style={styles.timeSectionLabel}>JAM KELUAR</Text> */}
-
                   {editHasOut ? (
-                    <View style={styles.timePicker}>
-                      <View style={styles.stackedControls}>
-                        <TouchableOpacity
-                          style={[styles.timeAdjustBtnSmall, styles.addBtn]}
-                          onPress={() => setEditOutHour(adjustTime(editOutHour, 1, 23))}
-                        >
-                          <Plus size={16} color="#FFFFFF" strokeWidth={3} />
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[styles.timeAdjustBtnSmall, styles.minusBtn]}
-                          onPress={() => setEditOutHour(adjustTime(editOutHour, -1, 23))}
-                        >
-                          <Minus size={16} color="#FFFFFF" strokeWidth={3} />
-                        </TouchableOpacity>
-                      </View>
-                      <Text style={styles.timeValueLarge}>{editOutHour}</Text>
-
-                      <Text style={styles.timeSeparator}>:</Text>
-
-                      <Text style={styles.timeValueLarge}>{editOutMinute}</Text>
-                      <View style={styles.stackedControls}>
-                        <TouchableOpacity
-                          style={[styles.timeAdjustBtnSmall, styles.addBtn]}
-                          onPress={() => setEditOutMinute(adjustTime(editOutMinute, 1, 59))}
-                        >
-                          <Plus size={16} color="#FFFFFF" strokeWidth={3} />
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[styles.timeAdjustBtnSmall, styles.minusBtn]}
-                          onPress={() => setEditOutMinute(adjustTime(editOutMinute, -1, 59))}
-                        >
-                          <Minus size={16} color="#FFFFFF" strokeWidth={3} />
-                        </TouchableOpacity>
-                      </View>
-                    </View>
+                    <VerticalTimeSlider
+                      hour={editOutHour}
+                      minute={editOutMinute}
+                      onChange={(h, m) => {
+                        setEditOutHour(h);
+                        setEditOutMinute(m);
+                      }}
+                      accentColor="#F43F5E"
+                    />
                   ) : (
                     <View style={styles.noOutTimeContainer}>
                       <Text style={styles.noOutTimeText}>Belum ada waktu keluar</Text>
@@ -504,19 +486,25 @@ export default function SessionRow({ date, sessions, compact = false, isFirstInM
                 style={styles.editModalCancel}
                 onPress={() => setEditModalVisible(false)}
                 activeOpacity={0.85}
+                disabled={isSaving}
               >
                 <Text style={styles.editModalCancelText}>Batal</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.editModalConfirm}
+                style={[styles.editModalConfirm, isSaving && { opacity: 0.7 }]}
                 onPress={handleSaveEdit}
                 activeOpacity={0.85}
+                disabled={isSaving}
               >
-                <Text style={styles.editModalConfirmText}>Simpan</Text>
+                {isSaving ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.editModalConfirmText}>Simpan</Text>
+                )}
               </TouchableOpacity>
             </View>
-          </View>
-        </View>
+          </Animated.View>
+        </Animated.View>
       </Modal>
 
       {/* Delete Confirmation Modal */}
@@ -547,7 +535,9 @@ export default function SessionRow({ date, sessions, compact = false, isFirstInM
                   <Text style={styles.deleteModalDate}>{formatDateKey(date)}</Text>
                   <Text style={styles.deleteModalTime}>
                     Masuk: {selectedSession.in_time}
-                    {selectedSession.out_time ? ` - Keluar: ${selectedSession.out_time}` : ' (Sedang Aktif)'}
+                    {selectedSession.out_time
+                      ? ` - Keluar: ${selectedSession.out_time}`
+                      : ' (Sedang Aktif)'}
                   </Text>
                 </View>
               )}
@@ -557,15 +547,21 @@ export default function SessionRow({ date, sessions, compact = false, isFirstInM
                   style={styles.deleteModalCancel}
                   onPress={() => setDeleteModalVisible(false)}
                   activeOpacity={0.85}
+                  disabled={isDeleting}
                 >
                   <Text style={styles.deleteModalCancelText}>Batal</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={styles.deleteModalConfirm}
+                  style={[styles.deleteModalConfirm, isDeleting && { opacity: 0.7 }]}
                   onPress={handleConfirmDelete}
                   activeOpacity={0.85}
+                  disabled={isDeleting}
                 >
-                  <Text style={styles.deleteModalConfirmText}>Hapus</Text>
+                  {isDeleting ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.deleteModalConfirmText}>Hapus</Text>
+                  )}
                 </TouchableOpacity>
               </View>
             </View>
@@ -575,6 +571,7 @@ export default function SessionRow({ date, sessions, compact = false, isFirstInM
     </View>
   );
 }
+
 const styles = StyleSheet.create({
   container: {
     backgroundColor: '#ffffff',
@@ -588,12 +585,9 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
-    // elevation: 2,
   },
-  // No longer used, styling handled inline for stability
   compact: {
     padding: 12,
-    // marginTop: -1,
   },
   header: {
     flexDirection: 'row',
@@ -637,13 +631,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   outBlock: {
-    // width: 90,
     flex: 1,
     borderRadius: 24,
     paddingVertical: 10,
     paddingHorizontal: 14,
     alignItems: 'center',
-    // gap: 2,
   },
   activeBlock: {
     flex: 1,
@@ -684,7 +676,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
-  // Action Modal (Long Press Menu)
+  // Action Modal
   actionModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -800,60 +792,73 @@ const styles = StyleSheet.create({
     color: '#64748B',
   },
 
-  // Edit Modal
+  // Edit Modal Styles
   editModalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
     justifyContent: 'flex-end',
   },
   editModalContentWrapper: {
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    paddingTop: 24,
-    paddingBottom: 18,
     paddingHorizontal: 24,
-    maxHeight: '86%',
+    paddingTop: 12,
+    paddingBottom: 30,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    elevation: 20,
+    maxHeight: '90%',
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#E2E8F0',
+    marginBottom: 20,
   },
   editModalHeader: {
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 20,
   },
   editModalIconBg: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: '#F0F9FF',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 12,
   },
   editModalTitle: {
-    fontSize: 22,
-    fontWeight: '800',
+    fontSize: 20,
+    fontWeight: '700',
     color: '#0F172A',
     marginBottom: 4,
   },
   editModalSubtitle: {
     fontSize: 14,
     color: '#64748B',
-    fontWeight: '600',
+    fontWeight: '500',
   },
   editModalScroll: {
-    flexGrow: 0,
+    width: '100%',
+    marginTop: 16,
   },
   editModalScrollContent: {
     paddingBottom: 8,
-    gap: 12,
+    gap: 14,
   },
   editFormGroup: {
-    gap: 12,
+    gap: 10,
   },
   editFormGroupTitle: {
     fontSize: 16,
     fontWeight: '800',
     color: '#0F172A',
-    marginBottom: 2,
   },
   timeSection: {
     backgroundColor: '#F8FAFC',
@@ -867,13 +872,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    // marginBottom: 16,
-  },
-  timeSectionLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#94A3B8',
-    letterSpacing: 1,
   },
   hasOutToggle: {
     width: 48,
@@ -901,60 +899,10 @@ const styles = StyleSheet.create({
   hasOutToggleDotActive: {
     backgroundColor: '#FFFFFF',
   },
-  timePickerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-  },
-  timePicker: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    // marginTop: 12,
-  },
-  stackedControls: {
-    gap: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  timeAdjustBtnSmall: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    // shadowColor: '#000',
-    // shadowOffset: { width: 0, height: 2 },
-    // shadowOpacity: 0.1,
-    // shadowRadius: 3,
-    // elevation: 2,
-  },
-  addBtn: {
-    backgroundColor: '#29b0f9',
-  },
-  minusBtn: {
-    backgroundColor: '#F43F5E',
-  },
-  timeValueLarge: {
-    fontSize: 36,
-    fontWeight: '800',
-    color: '#1E293B',
-    minWidth: 56,
-    textAlign: 'center',
-    fontVariant: ['tabular-nums'],
-  },
-  timeSeparator: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: '#CBD5E1',
-    marginHorizontal: 4,
-  },
   noOutTimeContainer: {
     alignItems: 'center',
-    paddingVertical: 12,
-    marginTop: 12,
+    paddingVertical: 24,
+    marginTop: 4,
     backgroundColor: '#F1F5F9',
     borderRadius: 16,
     borderStyle: 'dashed',
@@ -974,55 +922,16 @@ const styles = StyleSheet.create({
   dateSection: {
     backgroundColor: '#F8FAFC',
     borderRadius: 16,
-    padding: 16,
+    padding: 12,
     marginBottom: 12,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-  },
-  dateSectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  dateSectionLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#64748B',
-    letterSpacing: 0.5,
-  },
-  editDateToggleBtn: {
-    padding: 6,
-    borderRadius: 8,
-  },
-  datePickerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-  },
-  dateNavBtn: {
-    padding: 6,
-    borderRadius: 8,
-  },
-  dateValueWrapper: {
-    paddingHorizontal: 16,
-  },
-  datePickerValue: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#0F172A',
-  },
-  dateDisplayValue: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#0F172A',
-    textAlign: 'center',
   },
   editModalActions: {
     flexDirection: 'row',
     gap: 12,
     marginTop: 12,
+    width: '100%',
   },
   editModalCancel: {
     flex: 1,
