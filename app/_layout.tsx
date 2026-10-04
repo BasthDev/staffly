@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import * as NavigationBar from 'expo-navigation-bar';
 import { useFrameworkReady } from '@/hooks/useFrameworkReady';
 import { initDatabase } from '@/lib/database';
@@ -19,18 +19,26 @@ export default function RootLayout() {
   useEffect(() => {
     if (Platform.OS !== 'android') return;
 
-    // Keep Android system nav bar below app content (no overlay over tabs).
-    async function setupNavBar() {
+    // Hide native Android navigation bar so only the app Tab Navigator is visible
+    async function hideSystemNavBar() {
       try {
-        await NavigationBar.setPositionAsync('relative');
-        await NavigationBar.setBackgroundColorAsync('#FFFFFF');
-        await NavigationBar.setButtonStyleAsync('dark');
-        await NavigationBar.setVisibilityAsync('visible');
+        await NavigationBar.setBehaviorAsync('overlay-swipe');
+        await NavigationBar.setVisibilityAsync('hidden');
       } catch {
         // fallback
       }
     }
-    setupNavBar();
+    hideSystemNavBar();
+
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active') {
+        hideSystemNavBar();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
   }, []);
 
   return (

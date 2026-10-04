@@ -31,6 +31,7 @@ export default function HomeScreen() {
   const router = useRouter();
   const {
     todaySessions,
+    activeSession,
     places,
     currentPlaceId,
     loadInitial,
@@ -46,7 +47,7 @@ export default function HomeScreen() {
   } = useAttendanceStore();
 
   // 🔥 LOGIC
-  const hasActiveSession = todaySessions.some((s) => !s.out_time);
+  const hasActiveSession = activeSession !== null || todaySessions.some((s) => !s.out_time);
   const inEnabled = !hasActiveSession;
   const outEnabled = canCheckOut();
 

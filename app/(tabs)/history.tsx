@@ -11,6 +11,7 @@ import SessionRow from '@/components/SessionRow';
 import MonthFilter from '@/components/MonthFilter';
 import EditTimeModal from '@/components/EditTimeModal';
 import { Ionicons } from '@expo/vector-icons';
+import { calculateSessionDuration } from '@/lib/dateUtils';
 
 const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 
@@ -108,9 +109,81 @@ export default function HistoryScreen() {
   const handleExport = (format: 'csv' | 'txt' | 'whatsapp'): void => {
     if (!pendingExportMonth) return;
     const { monthKey, monthData } = pendingExportMonth;
-    const [year, monthNum] = monthKey.split('-');
+    const [yearStr, monthNumStr] = monthKey.split('-');
+    const year = parseInt(yearStr, 10);
+    const monthNum = parseInt(monthNumStr, 10);
     const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-    const monthDisplay = months[parseInt(monthNum) - 1];
+    const monthDisplay = months[monthNum - 1];
+
+    // Number of days in this month (1 to 28/29/30/31)
+    const daysInMonth = new Date(year, monthNum, 0).getDate();
+
+    // Map existing sessions by date key (YYYY-MM-DD)
+    const sessionsByDate = new Map<string, any[]>();
+    monthData.forEach((group: any) => {
+      sessionsByDate.set(group.date, group.sessions || []);
+    });
+
+    let totalWorkMinutes = 0;
+    let hadirDays = 0;
+    let offDays = 0;
+
+    const dailyRows: Array<{
+      dayNum: number;
+      dayName: string;
+      formattedDate: string;
+      hasAttendance: boolean;
+      sessionPairsText: string;
+      dayDurationText: string;
+    }> = [];
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dayStr = String(d).padStart(2, '0');
+      const monthStr = String(monthNum).padStart(2, '0');
+      const dateKey = `${year}-${monthStr}-${dayStr}`;
+      const dateObj = new Date(year, monthNum - 1, d);
+      const dayName = days[dateObj.getDay()];
+      const formattedDate = `${dayStr}/${monthStr}/${year}`;
+
+      const sessions = sessionsByDate.get(dateKey) || [];
+
+      if (sessions.length > 0) {
+        hadirDays++;
+        let dayMinutes = 0;
+        const sessionPairs = sessions.map((session: any) => {
+          const inTime = session.in_time;
+          const outTime = session.out_time || '??';
+          if (session.out_time) {
+            const dur = calculateSessionDuration(session.in_time, session.out_time, session.date || dateKey, session.out_date);
+            dayMinutes += dur;
+          }
+          return `(${inTime} - ${outTime})`;
+        });
+
+        totalWorkMinutes += dayMinutes;
+
+        dailyRows.push({
+          dayNum: d,
+          dayName,
+          formattedDate,
+          hasAttendance: true,
+          sessionPairsText: sessionPairs.join(' '),
+          dayDurationText: formatDuration(dayMinutes),
+        });
+      } else {
+        offDays++;
+        dailyRows.push({
+          dayNum: d,
+          dayName,
+          formattedDate,
+          hasAttendance: false,
+          sessionPairsText: 'OFF / Tidak Hadir',
+          dayDurationText: '0j 0m',
+        });
+      }
+    }
+
+    const totalWorkDurationText = formatDuration(totalWorkMinutes);
 
     let content = '';
     let fileName = '';
@@ -118,69 +191,66 @@ export default function HistoryScreen() {
     let uti = 'public.plain-text';
 
     if (format === 'csv') {
-      content = `Absensi ${monthDisplay} ${year} - ${currentPlaceName}\n\n`;
       fileName = `Absensi_${monthDisplay}_${year}_${currentPlaceName.replace(/\s+/g, '_')}.csv`;
       mimeType = 'text/csv';
       uti = 'public.comma-separated-values-text';
 
-      // Sort by date ascending (1-31)
-      const sortedData = [...monthData].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-      sortedData.forEach((group) => {
-        const dateObj = new Date(group.date);
-        const dayName = days[dateObj.getDay()];
-        const [y, m, d] = group.date.split('-');
-        const formattedDate = `${d}/${m}/${y}`;
-        const sessionPairs = group.sessions.map((session: any) => {
-          const inTime = session.in_time;
-          const outTime = session.out_time || '??';
-          return `(${inTime} - ${outTime})`;
-        });
-        content += `${dayName} ${formattedDate}: ${sessionPairs.join(' ')}\n`;
-      });
-    } else if (format === 'txt') {
       content = `Absensi ${monthDisplay} ${year} - ${currentPlaceName}\n\n`;
+      content += `Tanggal,Hari,Waktu Absen,Durasi,Status\n`;
+
+      dailyRows.forEach((row) => {
+        if (row.hasAttendance) {
+          content += `${row.formattedDate},${row.dayName},"${row.sessionPairsText}",${row.dayDurationText},Hadir\n`;
+        } else {
+          content += `${row.formattedDate},${row.dayName},"-",0j 0m,OFF / Tidak Hadir\n`;
+        }
+      });
+
+      content += `\nRINGKASAN BULANAN\n`;
+      content += `Total Hari Dalam Sebulan,${daysInMonth} hari\n`;
+      content += `Total Hari Hadir,${hadirDays} hari\n`;
+      content += `Total Hari OFF / Tidak Hadir,${offDays} hari\n`;
+      content += `Total Jam Kerja,${totalWorkDurationText}\n`;
+    } else if (format === 'txt') {
       fileName = `Absensi_${monthDisplay}_${year}_${currentPlaceName.replace(/\s+/g, '_')}.txt`;
 
-      // Sort by date ascending (1-31)
-      const sortedData = [...monthData].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      content = `Absensi ${monthDisplay} ${year} - ${currentPlaceName}\n\n`;
 
-      sortedData.forEach((group) => {
-        const dateObj = new Date(group.date);
-        const dayName = days[dateObj.getDay()];
-        const [y, m, d] = group.date.split('-');
-        const formattedDate = `${d}/${m}/${y}`;
-        const sessionPairs = group.sessions.map((session: any) => {
-          const inTime = session.in_time;
-          const outTime = session.out_time || '??';
-          return `(${inTime} - ${outTime})`;
-        });
-        content += `${dayName} ${formattedDate}:\n${sessionPairs.join(' ')}\n\n`;
+      dailyRows.forEach((row) => {
+        if (row.hasAttendance) {
+          content += `${row.dayName} ${row.formattedDate}:\n${row.sessionPairsText} [${row.dayDurationText}]\n\n`;
+        } else {
+          content += `${row.dayName} ${row.formattedDate}:\nOFF / Tidak Hadir\n\n`;
+        }
       });
 
-      content += `Total: ${sortedData.length} hari\n`;
+      content += `----------------------------------------\n`;
+      content += `RINGKASAN BULANAN:\n`;
+      // content += `• Total Hari Dalam Sebulan: ${daysInMonth} hari\n`;
+      content += `• Total Hari Hadir: ${hadirDays} hari\n`;
+      content += `• Total Hari OFF / Tidak Hadir: ${offDays} hari\n`;
+      content += `• Total Jam Kerja: ${totalWorkDurationText}\n`;
+      content += `----------------------------------------\n`;
       content += `Staffly App`;
     } else if (format === 'whatsapp') {
       content = `*Absensi ${monthDisplay} ${year}*\n📍 *${currentPlaceName}*\n\n`;
 
-      // Sort by date ascending (1-31)
-      const sortedData = [...monthData].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-      sortedData.forEach((group) => {
-        const dateObj = new Date(group.date);
-        const dayName = days[dateObj.getDay()];
-        const [y, m, d] = group.date.split('-');
-        const formattedDate = `${d}/${m}/${y}`;
-        const sessionPairs = group.sessions.map((session: any) => {
-          const inTime = session.in_time;
-          const outTime = session.out_time || '??';
-          return `(${inTime} - ${outTime})`;
-        });
-        content += `*${dayName}* ${formattedDate}:\n${sessionPairs.join(' ')}\n\n`;
+      dailyRows.forEach((row) => {
+        if (row.hasAttendance) {
+          content += `*${row.dayName}* ${row.formattedDate}:\n${row.sessionPairsText} [${row.dayDurationText}]\n\n`;
+        } else {
+          content += `*${row.dayName}* ${row.formattedDate}:\nOFF / Tidak Hadir\n\n`;
+        }
       });
 
-      content += `*Total: ${sortedData.length} hari*\n`;
-      content += `_Staffly App_`;
+      content += `━━━━━━━━━━━━━━━━━━━━━\n`;
+      content += `*RINGKASAN BULANAN:*\n`;
+      // content += `• *Total Hari Sebulan:* ${daysInMonth} hari\n`;
+      content += `• *Total Hari Hadir:* ${hadirDays} hari\n`;
+      content += `• *Total Hari OFF / Tidak Hadir:* ${offDays} hari\n`;
+      content += `• *Total Jam Kerja:* ${totalWorkDurationText}\n`;
+      content += `━━━━━━━━━━━━━━━━━━━━━\n`;
+      content += `Staffly App`;
 
       if (Platform.OS === 'web') {
         const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(content)}`;
@@ -285,10 +355,7 @@ export default function HistoryScreen() {
     for (const group of monthData) {
       for (const s of group.sessions) {
         if (s.out_time) {
-          const [inH, inM] = s.in_time.split(':').map(Number);
-          const [outH, outM] = s.out_time.split(':').map(Number);
-          const duration = (outH * 60 + outM) - (inH * 60 + inM);
-          if (duration > 0) totalMinutes += duration;
+          totalMinutes += calculateSessionDuration(s.in_time, s.out_time, s.date || group.date, s.out_date);
         }
       }
     }

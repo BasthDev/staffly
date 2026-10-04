@@ -20,9 +20,10 @@ export interface Place {
 type DbImpl = {
   insertInSession: (date: string, inTime: string, placeId: string) => Promise<number>;
   insertManualSession: (date: string, inTime: string, outTime: string, outDate: string | null, placeId: string) => Promise<number>;
-  updateOutSession: (id: number, outTime: string) => Promise<void>;
+  updateOutSession: (id: number, outTime: string, outDate?: string | null) => Promise<void>;
   updateSession: (id: number, newDate: string, inTime: string, outTime: string | null, outDate: string | null) => Promise<void>;
   getSessionsByDate: (date: string, placeId: string) => Promise<Session[]>;
+  getOpenSession: (placeId: string) => Promise<Session | null>;
   getAllDates: (placeId: string) => Promise<string[]>;
   getSessionsByDateRange: (startDate: string, endDate: string, placeId: string) => Promise<Session[]>;
   clearSessionsByPlace: (placeId: string) => Promise<void>;
@@ -169,11 +170,18 @@ function createWebImpl(): DbImpl {
       save(sessions);
       return id;
     },
-    async updateOutSession(id, outTime) {
+    async updateOutSession(id, outTime, outDate) {
       const sessions = load();
       const s = sessions.find((x) => x.id === id);
-      if (s && !s.out_time) s.out_time = outTime;
+      if (s && !s.out_time) {
+        s.out_time = outTime;
+        s.out_date = outDate || null;
+      }
       save(sessions);
+    },
+    async getOpenSession(placeId) {
+      const sessions = load();
+      return sessions.find((s) => s.place_id === placeId && !s.out_time) || null;
     },
     async updateSession(id, newDate, inTime, outTime, outDate) {
       const sessions = JSON.parse(localStorage.getItem('staffly_sessions') || '[]');
@@ -369,13 +377,28 @@ async function createNativeImpl(): Promise<DbImpl> {
           throw e;
         }
       },
-      async updateOutSession(id, outTime) {
+      async updateOutSession(id, outTime, outDate) {
         try {
-          await db.runAsync('UPDATE sessions SET out_time = ? WHERE id = ? AND out_time IS NULL', [outTime, id]);
+          await db.runAsync(
+            'UPDATE sessions SET out_time = ?, out_date = ? WHERE id = ? AND out_time IS NULL',
+            [outTime, outDate || null, id]
+          );
           console.log('[SQLite] Update success');
         } catch (e) {
           console.error('[SQLite] Update error:', e);
           throw e;
+        }
+      },
+      async getOpenSession(placeId) {
+        try {
+          const rows = await db.getAllAsync<Session>(
+            'SELECT * FROM sessions WHERE place_id = ? AND out_time IS NULL ORDER BY created_at DESC LIMIT 1',
+            [placeId]
+          );
+          return rows?.[0] || null;
+        } catch (e) {
+          console.error('[SQLite] Get open session error:', e);
+          return null;
         }
       },
       async updateSession(id, newDate, inTime, outTime, outDate) {
@@ -501,8 +524,12 @@ export async function insertManualSession(date: string, inTime: string, outTime:
   return withDbRecovery((db) => db.insertManualSession(date, inTime, outTime, outDate, placeId));
 }
 
-export async function updateOutSession(id: number, outTime: string): Promise<void> {
-  return withDbRecovery((db) => db.updateOutSession(id, outTime));
+export async function updateOutSession(id: number, outTime: string, outDate?: string | null): Promise<void> {
+  return withDbRecovery((db) => db.updateOutSession(id, outTime, outDate));
+}
+
+export async function getOpenSession(placeId: string): Promise<Session | null> {
+  return withDbRecovery((db) => db.getOpenSession(placeId));
 }
 
 export async function getSessionsByDate(date: string, placeId: string): Promise<Session[]> {

@@ -5,6 +5,7 @@ import {
   insertManualSession,
   updateOutSession,
   getSessionsByDate,
+  getOpenSession,
   getSessionsGroupedByDate,
   getSessionsGroupedByDateRange,
   getPlaces,
@@ -16,6 +17,9 @@ import {
   deleteSession as deleteSessionFromDb,
   updateSession as updateSessionInDb,
 } from '@/lib/database';
+import { calculateSessionDuration } from '@/lib/dateUtils';
+
+export { calculateSessionDuration };
 
 function getTodayDate(): string {
   const now = new Date();
@@ -42,22 +46,12 @@ function getMonthDateRange(): { startDate: string; endDate: string } {
   return { startDate, endDate };
 }
 
-function parseTime(timeStr: string): number {
-  const [h, m] = timeStr.split(':').map(Number);
-  return h * 60 + m;
-}
-
 export function calculateTotalHours(sessions: { date: string; sessions: Session[] }[]): number {
   let totalMinutes = 0;
   for (const group of sessions) {
     for (const s of group.sessions) {
       if (s.out_time) {
-        const inMinutes = parseTime(s.in_time);
-        const outMinutes = parseTime(s.out_time);
-        const duration = outMinutes - inMinutes;
-        if (duration > 0) {
-          totalMinutes += duration;
-        }
+        totalMinutes += calculateSessionDuration(s.in_time, s.out_time, s.date || group.date, s.out_date);
       }
     }
   }
@@ -68,6 +62,7 @@ interface AttendanceState {
   places: Place[];
   currentPlaceId: string;
   todaySessions: Session[];
+  activeSession: Session | null;
   allGrouped: { date: string; sessions: Session[] }[];
   monthlyGrouped: { date: string; sessions: Session[] }[];
   monthlyTotalHours: number;
@@ -100,6 +95,7 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
   places: [],
   currentPlaceId: 'default',
   todaySessions: [],
+  activeSession: null,
   allGrouped: [],
   monthlyGrouped: [],
   monthlyTotalHours: 0,
@@ -116,18 +112,28 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
       const today = getTodayDate();
       const { startDate, endDate } = getMonthDateRange();
 
-      const [todaySessions, allGrouped, monthlyGrouped] = await Promise.all([
+      const [allToday, allGrouped, monthlyGrouped, openSession] = await Promise.all([
         getSessionsByDate(today, effectivePlaceId),
         getSessionsGroupedByDate(effectivePlaceId),
         getSessionsGroupedByDateRange(startDate, endDate, effectivePlaceId),
+        getOpenSession(effectivePlaceId),
       ]);
 
       const monthlyTotalHours = calculateTotalHours(monthlyGrouped);
+
+      // On index screen: only show sessions that started TODAY and ended TODAY (or active today)
+      // Sessions that started yesterday and ended today at midnight are NOT shown on index screen
+      const todaySessions = allToday.filter((s) => {
+        if (!s.out_time) return true; // active today
+        if (!s.out_date) return true; // same day
+        return s.out_date === today; // out date is also today
+      });
 
       set({
         places,
         currentPlaceId: effectivePlaceId,
         todaySessions,
+        activeSession: openSession,
         allGrouped,
         monthlyGrouped,
         monthlyTotalHours,
@@ -144,14 +150,29 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
     const today = getTodayDate();
     const { startDate, endDate } = getMonthDateRange();
 
-    const [todaySessions, allGrouped, monthlyGrouped] = await Promise.all([
+    const [allToday, allGrouped, monthlyGrouped, openSession] = await Promise.all([
       getSessionsByDate(today, currentPlaceId),
       getSessionsGroupedByDate(currentPlaceId),
       getSessionsGroupedByDateRange(startDate, endDate, currentPlaceId),
+      getOpenSession(currentPlaceId),
     ]);
 
     const monthlyTotalHours = calculateTotalHours(monthlyGrouped);
-    set({ todaySessions, allGrouped, monthlyGrouped, monthlyTotalHours });
+
+    // Filter index screen sessions
+    const todaySessions = allToday.filter((s) => {
+      if (!s.out_time) return true;
+      if (!s.out_date) return true;
+      return s.out_date === today;
+    });
+
+    set({
+      todaySessions,
+      activeSession: openSession,
+      allGrouped,
+      monthlyGrouped,
+      monthlyTotalHours,
+    });
   },
 
   // ─── Individual loaders (kept for legacy useFocusEffect calls) ────────────
@@ -164,14 +185,27 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
   loadToday: async () => {
     const today = getTodayDate();
     const { currentPlaceId } = get();
-    const sessions = await getSessionsByDate(today, currentPlaceId);
-    set({ todaySessions: sessions });
+    const [allToday, openSession] = await Promise.all([
+      getSessionsByDate(today, currentPlaceId),
+      getOpenSession(currentPlaceId),
+    ]);
+    const todaySessions = allToday.filter((s) => {
+      if (!s.out_time) return true;
+      if (!s.out_date) return true;
+      return s.out_date === today;
+    });
+    set({ todaySessions, activeSession: openSession });
   },
 
   loadAll: async () => {
-    const { currentPlaceId } = get();
-    const all = await getSessionsGroupedByDate(currentPlaceId);
-    set({ allGrouped: all });
+    set({ loading: true });
+    try {
+      const { currentPlaceId } = get();
+      const all = await getSessionsGroupedByDate(currentPlaceId);
+      set({ allGrouped: all });
+    } finally {
+      set({ loading: false });
+    }
   },
 
   loadMonthly: async () => {
@@ -219,9 +253,9 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
     const today = getTodayDate();
     const { currentPlaceId } = get();
 
-    // Always read fresh from DB to avoid stale-state race conditions
-    const latestSessions = await getSessionsByDate(today, currentPlaceId);
-    if (latestSessions.some((s) => !s.out_time)) {
+    // Check if there is any open session in this place (even from yesterday)
+    const openSession = await getOpenSession(currentPlaceId);
+    if (openSession) {
       throw new Error('Masih ada sesi absen terbuka. Silakan absen keluar terlebih dahulu.');
     }
 
@@ -238,16 +272,16 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
     const today = getTodayDate();
     const { currentPlaceId } = get();
 
-    // Always read fresh from DB
-    const latestSessions = await getSessionsByDate(today, currentPlaceId);
-    const openSession = latestSessions.find((s) => !s.out_time);
+    // Find any open session in this place across any date
+    const openSession = await getOpenSession(currentPlaceId);
     if (!openSession) {
       throw new Error('Tidak ada sesi absen terbuka untuk absen keluar.');
     }
 
     const timeToUse = time || getCurrentTime();
-    console.log('[CheckOut] Starting...', { id: openSession.id, time: timeToUse });
-    await updateOutSession(openSession.id, timeToUse);
+    const outDateToUse = date || today;
+    console.log('[CheckOut] Starting...', { id: openSession.id, time: timeToUse, outDate: outDateToUse });
+    await updateOutSession(openSession.id, timeToUse, outDateToUse);
     console.log('[CheckOut] Success');
     await get().reloadAll();
   },
@@ -265,13 +299,13 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
 
   // ─── Computed helpers ─────────────────────────────────────────────────────
   hasOpenSession: () => {
-    const { todaySessions } = get();
-    return todaySessions.some((s) => !s.out_time);
+    const { activeSession, todaySessions } = get();
+    return activeSession !== null || todaySessions.some((s) => !s.out_time);
   },
 
   canCheckOut: () => {
-    const { todaySessions } = get();
-    return todaySessions.some((s) => !s.out_time);
+    const { activeSession, todaySessions } = get();
+    return activeSession !== null || todaySessions.some((s) => !s.out_time);
   },
 
   // ─── Demo data ────────────────────────────────────────────────────────────
@@ -285,7 +319,7 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
       const dateStr = date.toISOString().split('T')[0];
       if (date.getDay() === 0 || date.getDay() === 6) continue;
       const id = await insertInSession(dateStr, '08:00', currentPlaceId);
-      await updateOutSession(id, '17:00');
+      await updateOutSession(id, '17:00', dateStr);
     }
 
     await get().reloadAll();

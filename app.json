@@ -2,7 +2,7 @@
   "expo": {
     "name": "Staffly",
     "slug": "staffly",
-    "version": "2.0.2",
+    "version": "2.0.3",
     "orientation": "portrait",
     "icon": "./assets/images/Staffly.png",
     "scheme": "staffly",
@@ -15,7 +15,7 @@
     },
     "android": {
       "package": "id.my.basth.staffly",
-      "versionCode": 4,
+      "versionCode": 5,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/Staffly.png",
         "backgroundColor": "#ffffff"

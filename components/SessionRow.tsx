@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View, TouchableOpacity, Modal, ScrollView, Animated } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Session } from '@/lib/database';
-import { formatDateKey, formatDateLong } from '@/lib/dateUtils';
+import { formatDateKey, formatDateLong, calculateSessionDuration } from '@/lib/dateUtils';
 import { ArrowRight, Trash2, X, Pencil, Clock } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import VerticalTimeSlider from './VerticalTimeSlider';
@@ -211,14 +211,12 @@ export default function SessionRow({
   let totalMinutes = 0;
   pairs.forEach((pair) => {
     if (pair.outTime) {
-      const inMinutes = parseTime(pair.inTime);
-      const outMinutes = parseTime(pair.outTime);
-      // Handle cross-day sessions (e.g., in at 23:00, out at 02:00 next day)
-      let duration = outMinutes - inMinutes;
-      if (duration < 0) {
-        duration += 24 * 60; // Add 24 hours for cross-day
-      }
-      totalMinutes += duration;
+      totalMinutes += calculateSessionDuration(
+        pair.inTime,
+        pair.outTime,
+        date,
+        pair.session.out_date
+      );
     }
   });
 
