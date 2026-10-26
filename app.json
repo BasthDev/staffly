@@ -39,10 +39,7 @@
       [
         "expo-navigation-bar",
         {
-          "position": "relative",
-          "visibility": "hidden",
-          "behavior": "inset-swipe",
-          "backgroundColor": "#FFFFFF",
+          "hidden": true,
           "style": "dark"
         }
       ],
@@ -51,9 +48,7 @@
     "updates": {
       "url": "https://u.expo.dev/9d105859-60cd-4826-bebe-99f86d9539e5"
     },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
+    "runtimeVersion": "2.0.3",
     "experiments": {
       "typedRoutes": true
     },
