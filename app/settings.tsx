@@ -25,6 +25,7 @@ import {
   ExternalLink,
   Wallet,
   Check,
+  X,
 } from 'lucide-react-native';
 import { useAttendanceStore } from '@/store/attendanceStore';
 import { router } from 'expo-router';
@@ -194,7 +195,7 @@ export default function SettingsScreen() {
                   style={styles.salaryClearBtn}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.salaryClearText}>✕</Text>
+                  <X size={14} color="#64748B" strokeWidth={2.4} />
                 </TouchableOpacity>
               ) : null}
             </View>
@@ -267,9 +268,12 @@ export default function SettingsScreen() {
             <Trash2 size={20} color="#DC2626" strokeWidth={2} />
           </TouchableOpacity>
 
-          <Text style={styles.warningText}>
-            ⚠️ Data yang dihapus tidak dapat dikembalikan. Pastikan Anda sudah export data jika diperlukan.
-          </Text>
+          <View style={styles.warningContainer}>
+            <AlertTriangle size={15} color="#D97706" strokeWidth={2.2} />
+            <Text style={styles.warningText}>
+              Data yang dihapus tidak dapat dikembalikan. Pastikan Anda sudah export data jika diperlukan.
+            </Text>
+          </View>
         </View>
 
         {/* In-App Updates Section */}
@@ -348,7 +352,7 @@ export default function SettingsScreen() {
             {/* {buildNumber ? ` (build ${buildNumber})` : ''} */}
             {'\n'}
             Aplikasi Catat Absensi Manual{'\n'}{'\n'}
-            Build By BasthDev 👻
+            Build By BasthDev
           </Text>
         </View>
       </ScrollView>
@@ -561,12 +565,19 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 
+  warningContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+    paddingHorizontal: 4,
+  },
   warningText: {
+    flex: 1,
     fontSize: 12,
-    color: '#F59E0B',
+    color: '#D97706',
     lineHeight: 18,
-    textAlign: 'center',
-    marginTop: 8,
+    fontWeight: '500',
   },
 
   infoSection: {

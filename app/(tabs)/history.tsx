@@ -1,11 +1,46 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { ScrollView, StyleSheet, Text, View, Image, TouchableOpacity, Platform, Alert, Animated, Modal, Linking, RefreshControl, TextInput, ActivityIndicator } from 'react-native';
+import {
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  Image,
+  TouchableOpacity,
+  Platform,
+  Alert,
+  Animated,
+  Modal,
+  Linking,
+  RefreshControl,
+  TextInput,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  TouchableWithoutFeedback,
+  Keyboard,
+} from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Sharing from 'expo-sharing';
 import { documentDirectory, writeAsStringAsync } from 'expo-file-system/legacy';
-import { Clock3, CalendarDays, Briefcase, ChevronsDown, ChevronsUp, Clock, ListFilter, Download, FileSpreadsheet, FileText, X, Plus, Wallet, Pencil, Check } from 'lucide-react-native';
+import {
+  Clock3,
+  CalendarDays,
+  Briefcase,
+  ChevronsDown,
+  ChevronsUp,
+  Clock,
+  ListFilter,
+  Download,
+  FileSpreadsheet,
+  FileText,
+  X,
+  Plus,
+  Wallet,
+  Pencil,
+  Check,
+  MapPin,
+} from 'lucide-react-native';
 import { useAttendanceStore, calculateTotalSalary, formatCurrency } from '@/store/attendanceStore';
 import SessionRow from '@/components/SessionRow';
 import MonthFilter from '@/components/MonthFilter';
@@ -265,7 +300,7 @@ export default function HistoryScreen() {
       content += `----------------------------------------\n`;
       content += `Staffly App`;
     } else if (format === 'whatsapp') {
-      content = `*Absensi ${monthDisplay} ${year}*\n📍 *${currentPlaceName}*\n\n`;
+      content = `*Absensi ${monthDisplay} ${year}*\n*${currentPlaceName}*\n\n`;
 
       dailyRows.forEach((row) => {
         if (row.hasAttendance) {
@@ -445,79 +480,118 @@ export default function HistoryScreen() {
           </View>
         </View>
 
+        {/* Unified Hero Overview Card */}
         <LinearGradient
           colors={['#29b0f9', '#10B981']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={styles.totalHoursCard}
+          style={styles.heroOverviewCard}
         >
-          <View style={styles.totalHoursIconContainer}>
-            <Briefcase size={24} color="#FFFFFF" strokeWidth={2} />
-          </View>
-          <View style={styles.totalHoursContent}>
-            <Text style={styles.totalHoursTitle}>Total Jam Kerja</Text>
-            <Text style={styles.totalHoursValue}>{formatDuration(displayMonthTotalMinutes)}</Text>
-            <Text style={styles.totalHoursSubtitle}>
-              {isFilterActive && filterMonth !== null && filterYear !== null
-                ? (() => {
-                  const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-                  return `${months[filterMonth]} ${filterYear}`;
-                })()
-                : getCurrentMonthYear()}
-            </Text>
-          </View>
-          <TouchableOpacity
-            style={styles.addManualBtn}
-            onPress={() => setManualPopupVisible(true)}
-            activeOpacity={0.8}
-          >
-            <Plus size={20} color="#FFFFFF" strokeWidth={2.5} />
-          </TouchableOpacity>
-        </LinearGradient>
-
-        {/* Total Salary Card */}
-        <TouchableOpacity
-          style={styles.salaryOverviewCard}
-          onPress={() => setShowSalaryModal(true)}
-          activeOpacity={0.88}
-        >
-          <LinearGradient
-            colors={['#10B981', '#059669']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.salaryCardGradient}
-          >
-            <View style={styles.salaryOverviewIconContainer}>
-              <Wallet size={24} color="#FFFFFF" strokeWidth={2.2} />
+          {/* Card Header: Month Title & Add Manual Button */}
+          <View style={styles.heroHeaderRow}>
+            <View style={styles.heroHeaderTitleGroup}>
+              <Text style={styles.heroMonthText}>
+                {isFilterActive && filterMonth !== null && filterYear !== null
+                  ? (() => {
+                    const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+                    return `${months[filterMonth]} ${filterYear}`;
+                  })()
+                  : getCurrentMonthYear()}
+              </Text>
+              <View style={styles.heroPlaceRow}>
+                <MapPin size={12} color="rgba(255, 255, 255, 0.9)" strokeWidth={2.4} />
+                <Text style={styles.heroPlaceBadge}>{currentPlaceName}</Text>
+              </View>
             </View>
-            <View style={styles.salaryOverviewContent}>
-              <Text style={styles.salaryOverviewTitle}>Total Estimasi Gaji</Text>
-              <Text style={styles.salaryOverviewValue}>
+
+            <TouchableOpacity
+              style={styles.heroAddBtn}
+              onPress={() => setManualPopupVisible(true)}
+              activeOpacity={0.8}
+            >
+              <Plus size={15} color="#FFFFFF" strokeWidth={2.6} />
+              <Text style={styles.heroAddBtnText}>Absen Manual</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Main 2-Column Metrics: Jam Kerja & Total Gaji */}
+          <View style={styles.heroMetricsRow}>
+            {/* Left: Total Jam Kerja */}
+            <View style={styles.heroMetricCol}>
+              <View style={styles.heroMetricHeader}>
+                <Briefcase size={14} color="#DBEAFE" strokeWidth={2.4} />
+                <Text style={styles.heroMetricLabel}>JAM KERJA</Text>
+              </View>
+              <Text style={styles.heroMetricValue} numberOfLines={1} adjustsFontSizeToFit>
+                {formatDuration(displayMonthTotalMinutes)}
+              </Text>
+              <Text style={styles.heroMetricSub}>Waktu bulan ini</Text>
+            </View>
+
+            {/* Vertical Divider */}
+            <View style={styles.heroMetricDivider} />
+
+            {/* Right: Total Gaji (Tap to edit) */}
+            <TouchableOpacity
+              style={styles.heroMetricCol}
+              onPress={() => setShowSalaryModal(true)}
+              activeOpacity={0.75}
+            >
+              <View style={styles.heroMetricHeader}>
+                <Wallet size={14} color="#DBEAFE" strokeWidth={2.4} />
+                <Text style={styles.heroMetricLabel}>TOTAL GAJI</Text>
+                <Pencil size={11} color="rgba(255,255,255,0.8)" strokeWidth={2.4} />
+              </View>
+              <Text
+                style={[
+                  styles.heroMetricValue,
+                  {
+                    fontSize:
+                      formatCurrency(displayMonthSalary).length > 15
+                        ? 13
+                        : formatCurrency(displayMonthSalary).length > 12
+                        ? 15
+                        : formatCurrency(displayMonthSalary).length > 10
+                        ? 17
+                        : 20,
+                  },
+                ]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.65}
+              >
                 {formatCurrency(displayMonthSalary)}
               </Text>
-              <Text style={styles.salaryOverviewSubtitle}>
-                {currentHourlyRate > 0
-                  ? `Tarif: ${formatCurrency(currentHourlyRate)} / jam`
-                  : 'Ketuk untuk atur gaji per jam'}
+              {currentHourlyRate > 0 ? (
+                <Text style={styles.heroMetricSubPill}>
+                  Rp {(currentHourlyRate).toLocaleString('id-ID')} / jam
+                </Text>
+              ) : (
+                <View style={styles.inlinePencilRow}>
+                  <Text style={styles.heroMetricSubPill}>Atur Tarif Gaji</Text>
+                  <Pencil size={10} color="rgba(255,255,255,0.9)" strokeWidth={2.4} />
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
+
+          {/* Footer Stats Strip: Hari & Sesi */}
+          <View style={styles.heroFooterStrip}>
+            <View style={styles.heroFooterStat}>
+              <CalendarDays size={14} color="#FFFFFF" strokeWidth={2.2} />
+              <Text style={styles.heroFooterStatText}>
+                <Text style={styles.heroFooterStatBold}>{displayTotalDays}</Text> Hari Hadir
               </Text>
             </View>
-            <View style={styles.salaryEditBadge}>
-              <Pencil size={15} color="#FFFFFF" strokeWidth={2.4} />
+            <View style={styles.heroFooterDot} />
+            <View style={styles.heroFooterStat}>
+              <Clock3 size={14} color="#FFFFFF" strokeWidth={2.2} />
+              <Text style={styles.heroFooterStatText}>
+                <Text style={styles.heroFooterStatBold}>{displayTotalSessions}</Text> Sesi Tercatat
+              </Text>
             </View>
-          </LinearGradient>
-        </TouchableOpacity>
-        <View style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <CalendarDays size={20} color="#29b0f9" strokeWidth={2} />
-            <Text style={styles.statNum}>{displayTotalDays}</Text>
-            <Text style={styles.statLabel}>Hari</Text>
           </View>
-          <View style={styles.statCard}>
-            <Clock3 size={20} color="#29b0f9" strokeWidth={2} />
-            <Text style={styles.statNum}>{displayTotalSessions}</Text>
-            <Text style={styles.statLabel}>Sesi</Text>
-          </View>
-        </View>
+        </LinearGradient>
 
         {allGrouped.length === 0 ? (
           <View style={styles.emptyState}>
@@ -565,33 +639,40 @@ export default function HistoryScreen() {
                             </View>
                           )}
                         </View>
-                        <View style={styles.collapsibleStatsRow}>
-                          <View style={styles.collapsibleStatItem}>
-                            <CalendarDays size={12} color={isExpanded ? '#DBEAFE' : '#6B7280'} strokeWidth={2} />
-                            <Text style={[styles.collapsibleMonthStats, isExpanded && styles.collapsibleMonthStatsActive]}>
-                              {monthDays} hari
-                            </Text>
-                          </View>
-                          <View style={styles.collapsibleStatItem}>
-                            <Clock size={12} color={isExpanded ? '#DBEAFE' : '#6B7280'} strokeWidth={2} />
-                            <Text style={[styles.collapsibleMonthStats, isExpanded && styles.collapsibleMonthStatsActive]}>
-                              {monthSessions} sesi
-                            </Text>
-                          </View>
-                          <View style={styles.collapsibleStatItem}>
-                            <Briefcase size={12} color={isExpanded ? '#DBEAFE' : '#6B7280'} strokeWidth={2} />
-                            <Text style={[styles.collapsibleMonthStats, isExpanded && styles.collapsibleMonthStatsActive]}>
-                              {formatDuration(monthTotalMinutes)}
-                            </Text>
-                          </View>
-                          {currentHourlyRate > 0 && (
+                        <View style={styles.collapsibleStatsGrid}>
+                          {/* Row 1: Hari & Sesi */}
+                          <View style={styles.collapsibleStatsRow}>
                             <View style={styles.collapsibleStatItem}>
-                              <Wallet size={12} color={isExpanded ? '#DBEAFE' : '#10B981'} strokeWidth={2} />
+                              <CalendarDays size={12} color={isExpanded ? '#DBEAFE' : '#29b0f9'} strokeWidth={2.2} />
                               <Text style={[styles.collapsibleMonthStats, isExpanded && styles.collapsibleMonthStatsActive]}>
-                                {formatCurrency(calculateTotalSalary(monthTotalMinutes, currentHourlyRate))}
+                                {monthDays} hari
                               </Text>
                             </View>
-                          )}
+                            <View style={styles.collapsibleStatItem}>
+                              <Clock size={12} color={isExpanded ? '#DBEAFE' : '#6366F1'} strokeWidth={2.2} />
+                              <Text style={[styles.collapsibleMonthStats, isExpanded && styles.collapsibleMonthStatsActive]}>
+                                {monthSessions} sesi
+                              </Text>
+                            </View>
+                          </View>
+
+                          {/* Row 2: Jam & Gaji */}
+                          <View style={styles.collapsibleStatsRow}>
+                            <View style={styles.collapsibleStatItem}>
+                              <Briefcase size={12} color={isExpanded ? '#DBEAFE' : '#0EA5E9'} strokeWidth={2.2} />
+                              <Text style={[styles.collapsibleMonthStats, isExpanded && styles.collapsibleMonthStatsActive]}>
+                                {formatDuration(monthTotalMinutes)}
+                              </Text>
+                            </View>
+                            <View style={styles.collapsibleStatItem}>
+                              <Wallet size={12} color={isExpanded ? '#DBEAFE' : '#10B981'} strokeWidth={2.2} />
+                              <Text style={[styles.collapsibleMonthStats, isExpanded && styles.collapsibleMonthStatsActive]}>
+                                {currentHourlyRate > 0
+                                  ? formatCurrency(calculateTotalSalary(monthTotalMinutes, currentHourlyRate))
+                                  : 'Rp 0'}
+                              </Text>
+                            </View>
+                          </View>
                         </View>
                       </View>
                       <View style={styles.headerRightActions}>
@@ -752,144 +833,175 @@ export default function HistoryScreen() {
         defaultHasOut={true}
       />
 
-      {/* Salary Rate Modal */}
+      {/* Salary Rate Bottom Sheet */}
       <Modal
         visible={showSalaryModal}
         transparent
-        animationType="fade"
+        animationType="slide"
+        statusBarTranslucent
         onRequestClose={() => setShowSalaryModal(false)}
       >
-        <View style={styles.salaryModalOverlay}>
-          <View style={styles.salaryModalContainer}>
-            <LinearGradient
-              colors={['#10B981', '#059669']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.salaryModalHeader}
-            >
-              <View style={styles.salaryModalHeaderContent}>
-                <Wallet size={24} color="#FFFFFF" strokeWidth={2.2} />
-                <View>
-                  <Text style={styles.salaryModalTitle}>Atur Tarif Gaji / Jam</Text>
-                  <Text style={styles.salaryModalSubtitle}>📍 {currentPlaceName}</Text>
-                </View>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.salarySheetAvoid}
+        >
+          <View style={styles.salarySheetOverlay}>
+            <TouchableWithoutFeedback onPress={() => setShowSalaryModal(false)}>
+              <View style={styles.salarySheetBackdrop} />
+            </TouchableWithoutFeedback>
+
+            <View style={styles.salarySheetContainer}>
+              {/* Drag Handle Indicator */}
+              <View style={styles.sheetHandleRow}>
+                <View style={styles.sheetHandle} />
               </View>
-              <TouchableOpacity
-                onPress={() => setShowSalaryModal(false)}
-                style={styles.salaryModalCloseBtn}
-                activeOpacity={0.7}
+
+              {/* Sheet Header */}
+              <LinearGradient
+                colors={['#10B981', '#059669']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.salarySheetHeader}
               >
-                <X size={20} color="#FFFFFF" />
-              </TouchableOpacity>
-            </LinearGradient>
+                <View style={styles.salaryModalHeaderContent}>
+                  <View style={styles.salarySheetIconBadge}>
+                    <Wallet size={20} color="#FFFFFF" strokeWidth={2.4} />
+                  </View>
+                  <View>
+                    <Text style={styles.salaryModalTitle}>Atur Tarif Gaji / Jam</Text>
+                    <View style={styles.salarySheetPlaceRow}>
+                      <MapPin size={12} color="rgba(255, 255, 255, 0.9)" strokeWidth={2.4} />
+                      <Text style={styles.salaryModalSubtitle}>{currentPlaceName}</Text>
+                    </View>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setShowSalaryModal(false)}
+                  style={styles.salaryModalCloseBtn}
+                  activeOpacity={0.7}
+                >
+                  <X size={18} color="#FFFFFF" strokeWidth={2.4} />
+                </TouchableOpacity>
+              </LinearGradient>
 
-            <View style={styles.salaryModalBody}>
-              <Text style={styles.salaryModalLabel}>Tarif Gaji per Jam</Text>
-              <View style={styles.salaryModalInputRow}>
-                <Text style={styles.salaryModalCurrency}>Rp</Text>
-                <TextInput
-                  style={styles.salaryModalInput}
-                  keyboardType="numeric"
-                  placeholder="0"
-                  placeholderTextColor="#94A3B8"
-                  value={
-                    salaryInputVal
-                      ? parseInt(salaryInputVal.replace(/[^0-9]/g, '') || '0', 10).toLocaleString('id-ID')
-                      : ''
-                  }
-                  onChangeText={(text) => {
-                    const raw = text.replace(/[^0-9]/g, '');
-                    setSalaryInputVal(raw);
-                  }}
-                  autoFocus
-                />
-                {salaryInputVal ? (
-                  <TouchableOpacity
-                    onPress={() => setSalaryInputVal('')}
-                    style={styles.salaryModalClear}
-                  >
-                    <Text style={styles.salaryModalClearText}>✕</Text>
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-
-              {/* Quick Preset Chips */}
-              <View style={styles.salaryModalChips}>
-                {[10000, 20000, 50000].map((preset) => (
-                  <TouchableOpacity
-                    key={preset}
-                    style={styles.salaryModalChip}
-                    onPress={() => {
-                      const current = salaryInputVal.replace(/[^0-9]/g, '');
-                      const currentVal = current ? parseInt(current, 10) : 0;
-                      setSalaryInputVal(String(currentVal + preset));
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.salarySheetBody}
+              >
+                <Text style={styles.salaryModalLabel}>Tarif Gaji per Jam</Text>
+                <View style={styles.salaryModalInputRow}>
+                  <Text style={styles.salaryModalCurrency}>Rp</Text>
+                  <TextInput
+                    style={styles.salaryModalInput}
+                    keyboardType="numeric"
+                    placeholder="0"
+                    placeholderTextColor="#94A3B8"
+                    value={
+                      salaryInputVal
+                        ? parseInt(salaryInputVal.replace(/[^0-9]/g, '') || '0', 10).toLocaleString('id-ID')
+                        : ''
+                    }
+                    onChangeText={(text) => {
+                      const raw = text.replace(/[^0-9]/g, '');
+                      setSalaryInputVal(raw);
                     }}
+                    autoFocus
+                  />
+                  {salaryInputVal ? (
+                    <TouchableOpacity
+                      onPress={() => setSalaryInputVal('')}
+                      style={styles.salaryModalClear}
+                      activeOpacity={0.7}
+                    >
+                      <X size={13} color="#64748B" strokeWidth={2.5} />
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+
+                {/* Quick Preset Chips */}
+                <View style={styles.salaryModalChips}>
+                  {[10000, 20000, 50000].map((preset) => (
+                    <TouchableOpacity
+                      key={preset}
+                      style={styles.salaryModalChip}
+                      onPress={() => {
+                        const current = salaryInputVal.replace(/[^0-9]/g, '');
+                        const currentVal = current ? parseInt(current, 10) : 0;
+                        setSalaryInputVal(String(currentVal + preset));
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.salaryModalChipText}>+{(preset / 1000).toLocaleString('id-ID')}rb</Text>
+                    </TouchableOpacity>
+                  ))}
+                  <TouchableOpacity
+                    style={[styles.salaryModalChip, styles.salaryModalResetChip]}
+                    onPress={() => setSalaryInputVal('0')}
                     activeOpacity={0.7}
                   >
-                    <Text style={styles.salaryModalChipText}>+{(preset / 1000).toLocaleString('id-ID')}rb</Text>
+                    <Text style={[styles.salaryModalChipText, styles.salaryModalResetText]}>Reset</Text>
                   </TouchableOpacity>
-                ))}
-                <TouchableOpacity
-                  style={[styles.salaryModalChip, styles.salaryModalResetChip]}
-                  onPress={() => setSalaryInputVal('0')}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.salaryModalChipText, styles.salaryModalResetText]}>Reset</Text>
-                </TouchableOpacity>
-              </View>
+                </View>
 
-              {/* Live Preview of Month Total Salary */}
-              <View style={styles.salaryModalPreview}>
-                <Text style={styles.salaryModalPreviewLabel}>
-                  Estimasi Total ({isFilterActive && filterMonth !== null && filterYear !== null
-                    ? (() => {
-                      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-                      return `${months[filterMonth]} ${filterYear}`;
-                    })()
-                    : 'Bulan Ini'}):
-                </Text>
-                <Text style={styles.salaryModalPreviewValue}>
-                  {formatCurrency(
-                    calculateTotalSalary(
-                      displayMonthTotalMinutes,
-                      parseInt(salaryInputVal.replace(/[^0-9]/g, '') || '0', 10)
-                    )
-                  )}
-                </Text>
-                <Text style={styles.salaryModalPreviewHours}>
-                  Berdasarkan {formatDuration(displayMonthTotalMinutes)} kerja
-                </Text>
-              </View>
+                {/* Live Preview of Month Total Salary */}
+                <View style={styles.salaryModalPreview}>
+                  <Text style={styles.salaryModalPreviewLabel}>
+                    Estimasi Total ({isFilterActive && filterMonth !== null && filterYear !== null
+                      ? (() => {
+                        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+                        return `${months[filterMonth]} ${filterYear}`;
+                      })()
+                      : 'Bulan Ini'}):
+                  </Text>
+                  <Text
+                    style={styles.salaryModalPreviewValue}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.7}
+                  >
+                    {formatCurrency(
+                      calculateTotalSalary(
+                        displayMonthTotalMinutes,
+                        parseInt(salaryInputVal.replace(/[^0-9]/g, '') || '0', 10)
+                      )
+                    )}
+                  </Text>
+                  <Text style={styles.salaryModalPreviewHours}>
+                    Berdasarkan {formatDuration(displayMonthTotalMinutes)} kerja
+                  </Text>
+                </View>
 
-              {/* Action Buttons */}
-              <View style={styles.salaryModalActions}>
-                <TouchableOpacity
-                  style={styles.salaryModalCancelBtn}
-                  onPress={() => setShowSalaryModal(false)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.salaryModalCancelText}>Batal</Text>
-                </TouchableOpacity>
+                {/* Action Buttons */}
+                <View style={styles.salaryModalActions}>
+                  <TouchableOpacity
+                    style={styles.salaryModalCancelBtn}
+                    onPress={() => setShowSalaryModal(false)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.salaryModalCancelText}>Batal</Text>
+                  </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={[styles.salaryModalSaveBtn, isSavingSalary && styles.btnDisabled]}
-                  onPress={handleSaveSalaryRate}
-                  disabled={isSavingSalary}
-                  activeOpacity={0.85}
-                >
-                  {isSavingSalary ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <View style={styles.salaryModalSaveRow}>
-                      <Check size={18} color="#FFFFFF" strokeWidth={2.4} />
-                      <Text style={styles.salaryModalSaveText}>Simpan</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-              </View>
+                  <TouchableOpacity
+                    style={[styles.salaryModalSaveBtn, isSavingSalary && styles.btnDisabled]}
+                    onPress={handleSaveSalaryRate}
+                    disabled={isSavingSalary}
+                    activeOpacity={0.85}
+                  >
+                    {isSavingSalary ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <View style={styles.salaryModalSaveRow}>
+                        <Check size={18} color="#FFFFFF" strokeWidth={2.4} />
+                        <Text style={styles.salaryModalSaveText}>Simpan</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
@@ -941,6 +1053,140 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '700',
+  },
+  heroOverviewCard: {
+    borderRadius: 24,
+    padding: 18,
+    marginBottom: 20,
+    shadowColor: '#29b0f9',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 14,
+    elevation: 6,
+  },
+  heroHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  heroHeaderTitleGroup: {
+    flex: 1,
+  },
+  heroMonthText: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: -0.2,
+  },
+  heroPlaceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+  heroPlaceBadge: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontWeight: '600',
+  },
+  inlinePencilRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  heroPillBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  heroAddBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 16,
+  },
+  heroAddBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  heroMetricsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    borderRadius: 18,
+    padding: 14,
+    marginBottom: 14,
+  },
+  heroMetricCol: {
+    flex: 1,
+  },
+  heroMetricHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: 4,
+  },
+  heroMetricLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: 'rgba(255, 255, 255, 0.9)',
+    letterSpacing: 0.5,
+  },
+  heroMetricValue: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: -0.3,
+  },
+  heroMetricSub: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  heroMetricDivider: {
+    width: 1,
+    height: '80%',
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    marginHorizontal: 12,
+  },
+  heroMetricSubPill: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.9)',
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  heroFooterStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    paddingTop: 4,
+  },
+  heroFooterStat: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  heroFooterStatText: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontWeight: '500',
+  },
+  heroFooterStatBold: {
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  heroFooterDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
   },
   totalHoursCard: {
     flexDirection: 'row',
@@ -1073,14 +1319,20 @@ const styles = StyleSheet.create({
   monthBadgeTextActive: {
     color: '#FFFFFF',
   },
+  collapsibleStatsGrid: {
+    gap: 4,
+    marginTop: 2,
+  },
   collapsibleStatsRow: {
     flexDirection: 'row',
-    gap: 12,
+    alignItems: 'center',
+    gap: 16,
   },
   collapsibleStatItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 5,
+    minWidth: 80,
   },
   collapsibleMonthStats: {
     fontSize: 12,
@@ -1186,87 +1438,66 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginLeft: 12,
   },
-  salaryOverviewCard: {
-    marginTop: 12,
-    borderRadius: 20,
-    overflow: 'hidden',
-    shadowColor: '#10B981',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    elevation: 4,
-  },
-  salaryCardGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-  },
-  salaryOverviewIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 14,
-  },
-  salaryOverviewContent: {
+  salarySheetAvoid: {
     flex: 1,
   },
-  salaryOverviewTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: 'rgba(255, 255, 255, 0.85)',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 2,
-  },
-  salaryOverviewValue: {
-    fontSize: 22,
-    fontWeight: '900',
-    color: '#FFFFFF',
-    letterSpacing: -0.3,
-  },
-  salaryOverviewSubtitle: {
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.85)',
-    marginTop: 2,
-    fontWeight: '500',
-  },
-  salaryEditBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 8,
-  },
-  salaryModalOverlay: {
+  salarySheetOverlay: {
     flex: 1,
+    justifyContent: 'flex-end',
     backgroundColor: 'rgba(15, 23, 42, 0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
   },
-  salaryModalContainer: {
+  salarySheetBackdrop: {
+    flex: 1,
+  },
+  salarySheetContainer: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    width: '100%',
-    maxWidth: 360,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     overflow: 'hidden',
+    maxHeight: '88%',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.25,
-    shadowRadius: 20,
-    elevation: 10,
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 20,
   },
-  salaryModalHeader: {
+  sheetHandleRow: {
+    alignItems: 'center',
+    paddingTop: 10,
+    paddingBottom: 4,
+    backgroundColor: '#10B981',
+  },
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+  },
+  salarySheetHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 18,
+    paddingTop: 6,
+    paddingBottom: 16,
+  },
+  salarySheetIconBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  salarySheetPlaceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+  salarySheetBody: {
+    padding: 20,
+    paddingBottom: 32,
   },
   salaryModalHeaderContent: {
     flexDirection: 'row',
@@ -1280,7 +1511,7 @@ const styles = StyleSheet.create({
   },
   salaryModalSubtitle: {
     fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.85)',
+    color: 'rgba(255, 255, 255, 0.9)',
     fontWeight: '600',
   },
   salaryModalCloseBtn: {
@@ -1290,9 +1521,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  salaryModalBody: {
-    padding: 20,
   },
   salaryModalLabel: {
     fontSize: 13,
