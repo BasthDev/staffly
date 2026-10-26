@@ -13,9 +13,9 @@ export function useAppUpdates() {
 
   return {
     ...state,
-    checkForUpdates: () => updateService.checkForUpdates(),
+    checkForUpdates: (manual: boolean = false) => updateService.checkForUpdates(manual),
     applyUpdate: () => updateService.applyUpdate(),
     dismissPopup: (snoozeDuration?: number) => updateService.dismissPopup(snoozeDuration),
-    simulateUpdate: (isImmediate?: boolean) => updateService.simulateUpdate(isImmediate),
+    simulateUpdate: () => updateService.simulateUpdate(),
   };
 }

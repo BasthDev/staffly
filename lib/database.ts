@@ -15,6 +15,7 @@ export interface Place {
   id: string;
   name: string;
   created_at: number;
+  hourly_rate?: number;
 }
 
 type DbImpl = {
@@ -32,6 +33,7 @@ type DbImpl = {
   getPlaces: () => Promise<Place[]>;
   insertPlace: (name: string) => Promise<string>;
   updatePlaceName: (placeId: string, name: string) => Promise<void>;
+  updatePlaceHourlyRate: (placeId: string, rate: number) => Promise<void>;
   getCurrentPlaceId: () => Promise<string>;
   setCurrentPlaceId: (placeId: string) => Promise<void>;
 };
@@ -247,6 +249,14 @@ function createWebImpl(): DbImpl {
         savePlaces(places);
       }
     },
+    async updatePlaceHourlyRate(placeId, rate) {
+      const places = loadPlaces();
+      const place = places.find((p) => p.id === placeId);
+      if (place) {
+        place.hourly_rate = rate;
+        savePlaces(places);
+      }
+    },
     async deleteSession(id) {
       const sessions = load().filter((s) => s.id !== id);
       save(sessions);
@@ -319,6 +329,11 @@ async function createNativeImpl(): Promise<DbImpl> {
       // Migration: add out_date if older DB
       try {
         await db.runAsync('ALTER TABLE sessions ADD COLUMN out_date TEXT');
+      } catch { /* ignore if already exists */ }
+
+      // Migration: add hourly_rate to places if older DB
+      try {
+        await db.runAsync('ALTER TABLE places ADD COLUMN hourly_rate REAL DEFAULT 0');
       } catch { /* ignore if already exists */ }
       
       await db.runAsync('UPDATE sessions SET place_id = ? WHERE place_id IS NULL', [DEFAULT_PLACE_ID]);
@@ -449,11 +464,11 @@ async function createNativeImpl(): Promise<DbImpl> {
 
       async getPlaces() {
         try {
-          const rows = await db.getAllAsync<Place>('SELECT * FROM places ORDER BY created_at ASC');
+          const rows = await db.getAllAsync<Place>('SELECT id, name, created_at, COALESCE(hourly_rate, 0) as hourly_rate FROM places ORDER BY created_at ASC');
           return rows || [];
         } catch (e) {
           console.error('[SQLite] Get places error:', e);
-          return [{ id: DEFAULT_PLACE_ID, name: 'Default', created_at: Math.floor(Date.now() / 1000) }];
+          return [{ id: DEFAULT_PLACE_ID, name: 'Default', created_at: Math.floor(Date.now() / 1000), hourly_rate: 0 }];
         }
       },
       async insertPlace(name) {
@@ -501,6 +516,14 @@ async function createNativeImpl(): Promise<DbImpl> {
           await db.runAsync('UPDATE places SET name = ? WHERE id = ?', [name, placeId]);
         } catch (e) {
           console.error('[SQLite] Update place name error:', e);
+          throw e;
+        }
+      },
+      async updatePlaceHourlyRate(placeId, rate) {
+        try {
+          await db.runAsync('UPDATE places SET hourly_rate = ? WHERE id = ?', [rate, placeId]);
+        } catch (e) {
+          console.error('[SQLite] Update place hourly rate error:', e);
           throw e;
         }
       },
@@ -600,6 +623,10 @@ export async function deleteSession(id: number): Promise<void> {
 
 export async function updatePlaceName(placeId: string, name: string): Promise<void> {
   return withDbRecovery((db) => db.updatePlaceName(placeId, name));
+}
+
+export async function updatePlaceHourlyRate(placeId: string, rate: number): Promise<void> {
+  return withDbRecovery((db) => db.updatePlaceHourlyRate(placeId, rate));
 }
 
 export async function updateSession(id: number, newDate: string, inTime: string, outTime: string | null, outDate: string | null): Promise<void> {

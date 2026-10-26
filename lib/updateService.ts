@@ -1,8 +1,7 @@
 import * as Updates from 'expo-updates';
 import { AppState, AppStateStatus } from 'react-native';
 
-const THIRTY_MINUTES_MS = 30 * 60 * 1000;
-const SNOOZE_DURATION_MS = 30 * 60 * 1000; // Snooze for 30 minutes if user taps 'Nanti'
+const SNOOZE_DURATION_MS = 30 * 60 * 1000; // Snooze for 30 minutes if user taps 'Nanti Saja'
 
 export interface UpdateState {
   isChecking: boolean;
@@ -30,7 +29,6 @@ class UpdateService {
   };
 
   private listeners: Set<UpdateListener> = new Set();
-  private releaseTimer: ReturnType<typeof setTimeout> | null = null;
   private snoozeUntil: number = 0;
   private appStateSubscription: any = null;
   private periodicCheckInterval: ReturnType<typeof setInterval> | null = null;
@@ -74,7 +72,7 @@ class UpdateService {
     }, 15 * 60 * 1000);
   }
 
-  public async checkForUpdates(): Promise<void> {
+  public async checkForUpdates(manual: boolean = false): Promise<void> {
     if (this.state.isChecking || this.state.isDownloading) return;
 
     this.updateState({ isChecking: true, error: null });
@@ -101,15 +99,21 @@ class UpdateService {
         const elapsedMs = Math.max(0, now - releaseDate.getTime());
         const minutesSince = Math.floor(elapsedMs / (60 * 1000));
 
+        // If manual check, clear any snooze so modal always shows
+        if (manual) {
+          this.snoozeUntil = 0;
+        }
+
+        const shouldShowPopup = manual || now >= this.snoozeUntil;
+
         this.updateState({
           isChecking: false,
           isUpdateAvailable: true,
+          showPopup: shouldShowPopup,
           updateReleaseDate: releaseDate,
           minutesSinceRelease: minutesSince,
           lastChecked: new Date(),
         });
-
-        this.handleReleaseTiming(releaseDate);
       } else {
         this.updateState({
           isChecking: false,
@@ -124,34 +128,6 @@ class UpdateService {
         error: err?.message || 'Gagal memeriksa pembaruan',
         lastChecked: new Date(),
       });
-    }
-  }
-
-  private handleReleaseTiming(releaseDate: Date) {
-    if (this.releaseTimer) {
-      clearTimeout(this.releaseTimer);
-      this.releaseTimer = null;
-    }
-
-    const now = Date.now();
-    const elapsedMs = now - releaseDate.getTime();
-
-    // Check if currently snoozed
-    if (now < this.snoozeUntil) {
-      return;
-    }
-
-    if (elapsedMs >= THIRTY_MINUTES_MS) {
-      // 30 minutes after release has passed! Show popup now.
-      this.updateState({ showPopup: true });
-    } else {
-      // Release is less than 30 minutes old. Wait until exact 30 minutes mark.
-      const delayMs = THIRTY_MINUTES_MS - elapsedMs;
-      this.releaseTimer = setTimeout(() => {
-        if (Date.now() >= this.snoozeUntil) {
-          this.updateState({ showPopup: true });
-        }
-      }, delayMs);
     }
   }
 
@@ -182,30 +158,19 @@ class UpdateService {
     }
   }
 
-  // Developer simulation helper for testing the 30-minute popup behavior
-  public simulateUpdate(isImmediate: boolean = true) {
-    const releaseDate = isImmediate
-      ? new Date(Date.now() - 31 * 60 * 1000) // released 31 minutes ago
-      : new Date(Date.now() - 10 * 60 * 1000); // released 10 minutes ago
-
-    const elapsedMs = Date.now() - releaseDate.getTime();
-    const minutesSince = Math.floor(elapsedMs / (60 * 1000));
-
+  // Developer simulation helper for testing immediate popup behavior
+  public simulateUpdate() {
     this.snoozeUntil = 0;
     this.updateState({
       isUpdateAvailable: true,
-      updateReleaseDate: releaseDate,
-      minutesSinceRelease: minutesSince,
+      showPopup: true,
+      updateReleaseDate: new Date(),
+      minutesSinceRelease: 0,
       lastChecked: new Date(),
     });
-
-    this.handleReleaseTiming(releaseDate);
   }
 
   public destroy() {
-    if (this.releaseTimer) {
-      clearTimeout(this.releaseTimer);
-    }
     if (this.periodicCheckInterval) {
       clearInterval(this.periodicCheckInterval);
     }

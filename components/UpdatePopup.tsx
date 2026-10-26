@@ -94,9 +94,9 @@ export default function UpdatePopup() {
           <View style={styles.badge}>
             <ArrowDownCircle size={14} color="#0284C7" strokeWidth={2.5} />
             <Text style={styles.badgeText}>
-              {minutesSinceRelease !== null && minutesSinceRelease >= 30
-                ? `Dirilis ${minutesSinceRelease} menit lalu`
-                : 'Pembaruan Tersedia'}
+              {minutesSinceRelease !== null && minutesSinceRelease > 0
+                ? `Dirilis ${minutesSinceRelease} mnt lalu`
+                : 'Versi Terbaru Tersedia'}
             </Text>
           </View>
 

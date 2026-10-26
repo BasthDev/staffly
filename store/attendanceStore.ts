@@ -14,6 +14,7 @@ import {
   setCurrentPlaceId,
   clearSessionsByPlace,
   updatePlaceName,
+  updatePlaceHourlyRate,
   deleteSession as deleteSessionFromDb,
   updateSession as updateSessionInDb,
 } from '@/lib/database';
@@ -58,20 +59,32 @@ export function calculateTotalHours(sessions: { date: string; sessions: Session[
   return totalMinutes;
 }
 
+export function calculateTotalSalary(totalMinutes: number, hourlyRate: number): number {
+  if (!hourlyRate || hourlyRate <= 0) return 0;
+  return Math.round((totalMinutes / 60) * hourlyRate);
+}
+
+export function formatCurrency(amount: number): string {
+  return `Rp ${Math.round(amount).toLocaleString('id-ID')}`;
+}
+
 interface AttendanceState {
   places: Place[];
   currentPlaceId: string;
+  currentHourlyRate: number;
   todaySessions: Session[];
   activeSession: Session | null;
   allGrouped: { date: string; sessions: Session[] }[];
   monthlyGrouped: { date: string; sessions: Session[] }[];
   monthlyTotalHours: number;
+  monthlyTotalSalary: number;
   loading: boolean;
   /** True once the first full data load has completed — use to suppress blank-screen flicker */
   isInitialized: boolean;
   loadPlaces: () => Promise<void>;
   addPlace: (name: string) => Promise<void>;
   renamePlace: (placeId: string, name: string) => Promise<void>;
+  setHourlyRate: (rate: number) => Promise<void>;
   setCurrentPlace: (placeId: string) => Promise<void>;
   clearCurrentPlaceData: () => Promise<void>;
   deleteSession: (sessionId: number) => Promise<void>;
@@ -94,11 +107,13 @@ interface AttendanceState {
 export const useAttendanceStore = create<AttendanceState>((set, get) => ({
   places: [],
   currentPlaceId: 'default',
+  currentHourlyRate: 0,
   todaySessions: [],
   activeSession: null,
   allGrouped: [],
   monthlyGrouped: [],
   monthlyTotalHours: 0,
+  monthlyTotalSalary: 0,
   loading: false,
   isInitialized: false,
 
@@ -108,6 +123,7 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
     try {
       const [places, currentPlaceId] = await Promise.all([getPlaces(), getCurrentPlaceId()]);
       const effectivePlaceId = currentPlaceId || places[0]?.id || 'default';
+      const currentHourlyRate = places.find((p) => p.id === effectivePlaceId)?.hourly_rate || 0;
 
       const today = getTodayDate();
       const { startDate, endDate } = getMonthDateRange();
@@ -120,6 +136,7 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
       ]);
 
       const monthlyTotalHours = calculateTotalHours(monthlyGrouped);
+      const monthlyTotalSalary = calculateTotalSalary(monthlyTotalHours, currentHourlyRate);
 
       // On index screen: only show sessions that started TODAY and ended TODAY (or active today)
       // Sessions that started yesterday and ended today at midnight are NOT shown on index screen
@@ -132,11 +149,13 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
       set({
         places,
         currentPlaceId: effectivePlaceId,
+        currentHourlyRate,
         todaySessions,
         activeSession: openSession,
         allGrouped,
         monthlyGrouped,
         monthlyTotalHours,
+        monthlyTotalSalary,
         isInitialized: true,
       });
     } finally {
@@ -146,18 +165,21 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
 
   // ─── Batch reload after any mutation ──────────────────────────────────────
   reloadAll: async () => {
-    const { currentPlaceId } = get();
+    const { currentPlaceId, places } = get();
     const today = getTodayDate();
     const { startDate, endDate } = getMonthDateRange();
 
-    const [allToday, allGrouped, monthlyGrouped, openSession] = await Promise.all([
+    const [allToday, allGrouped, monthlyGrouped, openSession, freshPlaces] = await Promise.all([
       getSessionsByDate(today, currentPlaceId),
       getSessionsGroupedByDate(currentPlaceId),
       getSessionsGroupedByDateRange(startDate, endDate, currentPlaceId),
       getOpenSession(currentPlaceId),
+      getPlaces(),
     ]);
 
+    const currentHourlyRate = freshPlaces.find((p) => p.id === currentPlaceId)?.hourly_rate || 0;
     const monthlyTotalHours = calculateTotalHours(monthlyGrouped);
+    const monthlyTotalSalary = calculateTotalSalary(monthlyTotalHours, currentHourlyRate);
 
     // Filter index screen sessions
     const todaySessions = allToday.filter((s) => {
@@ -167,11 +189,14 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
     });
 
     set({
+      places: freshPlaces,
+      currentHourlyRate,
       todaySessions,
       activeSession: openSession,
       allGrouped,
       monthlyGrouped,
       monthlyTotalHours,
+      monthlyTotalSalary,
     });
   },
 
@@ -179,7 +204,8 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
   loadPlaces: async () => {
     const [places, currentPlaceId] = await Promise.all([getPlaces(), getCurrentPlaceId()]);
     const effectivePlaceId = currentPlaceId || places[0]?.id || 'default';
-    set({ places, currentPlaceId: effectivePlaceId });
+    const currentHourlyRate = places.find((p) => p.id === effectivePlaceId)?.hourly_rate || 0;
+    set({ places, currentPlaceId: effectivePlaceId, currentHourlyRate });
   },
 
   loadToday: async () => {
@@ -229,6 +255,12 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
     if (!trimmed) return;
     await updatePlaceName(placeId, trimmed);
     await get().loadPlaces();
+  },
+
+  setHourlyRate: async (rate: number) => {
+    const { currentPlaceId } = get();
+    await updatePlaceHourlyRate(currentPlaceId, Math.max(0, rate));
+    await get().reloadAll();
   },
 
   setCurrentPlace: async (placeId: string) => {

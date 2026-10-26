@@ -40,12 +40,13 @@
         "expo-navigation-bar",
         {
           "position": "relative",
-          "visibility": "visible",
+          "visibility": "hidden",
           "behavior": "inset-swipe",
           "backgroundColor": "#FFFFFF",
-          "barStyle": "dark-content"
+          "style": "dark"
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "updates": {
       "url": "https://u.expo.dev/9d105859-60cd-4826-bebe-99f86d9539e5"

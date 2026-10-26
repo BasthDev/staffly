@@ -22,8 +22,11 @@ export default function RootLayout() {
     // Hide native Android navigation bar so only the app Tab Navigator is visible
     async function hideSystemNavBar() {
       try {
-        await NavigationBar.setBehaviorAsync('overlay-swipe');
-        await NavigationBar.setVisibilityAsync('hidden');
+        if (typeof (NavigationBar as any).setHidden === 'function') {
+          (NavigationBar as any).setHidden(true);
+        } else if (typeof NavigationBar.setVisibilityAsync === 'function') {
+          await NavigationBar.setVisibilityAsync('hidden');
+        }
       } catch {
         // fallback
       }

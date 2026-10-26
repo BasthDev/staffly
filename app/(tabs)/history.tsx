@@ -1,12 +1,12 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { ScrollView, StyleSheet, Text, View, Image, TouchableOpacity, Platform, Alert, Animated, Modal, Linking, RefreshControl } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, Image, TouchableOpacity, Platform, Alert, Animated, Modal, Linking, RefreshControl, TextInput, ActivityIndicator } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Sharing from 'expo-sharing';
 import { documentDirectory, writeAsStringAsync } from 'expo-file-system/legacy';
-import { Clock3, CalendarDays, Briefcase, ChevronsDown, ChevronsUp, Clock, ListFilter, Download, FileSpreadsheet, FileText, X, Plus } from 'lucide-react-native';
-import { useAttendanceStore } from '@/store/attendanceStore';
+import { Clock3, CalendarDays, Briefcase, ChevronsDown, ChevronsUp, Clock, ListFilter, Download, FileSpreadsheet, FileText, X, Plus, Wallet, Pencil, Check } from 'lucide-react-native';
+import { useAttendanceStore, calculateTotalSalary, formatCurrency } from '@/store/attendanceStore';
 import SessionRow from '@/components/SessionRow';
 import MonthFilter from '@/components/MonthFilter';
 import EditTimeModal from '@/components/EditTimeModal';
@@ -39,11 +39,34 @@ function getMonthYearFromDate(dateStr: string): string {
 }
 
 export default function HistoryScreen() {
-  const { allGrouped, monthlyGrouped, monthlyTotalHours, loading, loadMonthly, loadAll, reloadAll, deleteSession, updateSession, insertManualSession, places, currentPlaceId, isInitialized } = useAttendanceStore();
+  const { allGrouped, monthlyGrouped, monthlyTotalHours, loading, loadMonthly, loadAll, reloadAll, deleteSession, updateSession, insertManualSession, places, currentPlaceId, isInitialized, currentHourlyRate, setHourlyRate } = useAttendanceStore();
   const currentPlaceName = places.find((p) => p.id === currentPlaceId)?.name || 'Default';
   const currentMonthKey = getCurrentMonthKey();
 
   const [expandedMonths, setExpandedMonths] = useState<string[]>([currentMonthKey]);
+
+  // Salary editing modal state
+  const [showSalaryModal, setShowSalaryModal] = useState(false);
+  const [salaryInputVal, setSalaryInputVal] = useState(currentHourlyRate > 0 ? String(currentHourlyRate) : '');
+  const [isSavingSalary, setIsSavingSalary] = useState(false);
+
+  useEffect(() => {
+    setSalaryInputVal(currentHourlyRate > 0 ? String(currentHourlyRate) : '');
+  }, [currentHourlyRate, currentPlaceId]);
+
+  const handleSaveSalaryRate = async () => {
+    setIsSavingSalary(true);
+    try {
+      const clean = salaryInputVal.replace(/[^0-9]/g, '');
+      const rate = clean ? parseInt(clean, 10) : 0;
+      await setHourlyRate(rate);
+      setShowSalaryModal(false);
+    } catch (e) {
+      console.error('Failed to save salary rate:', e);
+    } finally {
+      setIsSavingSalary(false);
+    }
+  };
 
   // Group by month - Memoized to prevent stability issues (fixes blank records)
   const groupedByMonth = React.useMemo(() => {
@@ -184,6 +207,7 @@ export default function HistoryScreen() {
     }
 
     const totalWorkDurationText = formatDuration(totalWorkMinutes);
+    const totalSalary = calculateTotalSalary(totalWorkMinutes, currentHourlyRate);
 
     let content = '';
     let fileName = '';
@@ -211,6 +235,10 @@ export default function HistoryScreen() {
       content += `Total Hari Hadir,${hadirDays} hari\n`;
       content += `Total Hari OFF / Tidak Hadir,${offDays} hari\n`;
       content += `Total Jam Kerja,${totalWorkDurationText}\n`;
+      if (currentHourlyRate > 0) {
+        content += `Tarif Gaji / Jam,Rp ${currentHourlyRate.toLocaleString('id-ID')}\n`;
+        content += `Total Gaji,Rp ${totalSalary.toLocaleString('id-ID')}\n`;
+      }
     } else if (format === 'txt') {
       fileName = `Absensi_${monthDisplay}_${year}_${currentPlaceName.replace(/\s+/g, '_')}.txt`;
 
@@ -230,6 +258,10 @@ export default function HistoryScreen() {
       content += `• Total Hari Hadir: ${hadirDays} hari\n`;
       content += `• Total Hari OFF / Tidak Hadir: ${offDays} hari\n`;
       content += `• Total Jam Kerja: ${totalWorkDurationText}\n`;
+      if (currentHourlyRate > 0) {
+        content += `• Tarif Gaji / Jam: Rp ${currentHourlyRate.toLocaleString('id-ID')}\n`;
+        content += `• Total Gaji: Rp ${totalSalary.toLocaleString('id-ID')}\n`;
+      }
       content += `----------------------------------------\n`;
       content += `Staffly App`;
     } else if (format === 'whatsapp') {
@@ -249,6 +281,10 @@ export default function HistoryScreen() {
       content += `• *Total Hari Hadir:* ${hadirDays} hari\n`;
       content += `• *Total Hari OFF / Tidak Hadir:* ${offDays} hari\n`;
       content += `• *Total Jam Kerja:* ${totalWorkDurationText}\n`;
+      if (currentHourlyRate > 0) {
+        content += `• *Tarif Gaji / Jam:* Rp ${currentHourlyRate.toLocaleString('id-ID')}\n`;
+        content += `• *Total Gaji:* Rp ${totalSalary.toLocaleString('id-ID')}\n`;
+      }
       content += `━━━━━━━━━━━━━━━━━━━━━\n`;
       content += `Staffly App`;
 
@@ -347,6 +383,7 @@ export default function HistoryScreen() {
   const displayMonthData = groupedByMonth[displayMonthKey] || [];
 
   const displayMonthTotalMinutes = calculateMonthTotalMinutes(displayMonthData);
+  const displayMonthSalary = calculateTotalSalary(displayMonthTotalMinutes, currentHourlyRate);
   const displayTotalDays = displayMonthData.length;
   const displayTotalSessions = displayMonthData.reduce((acc: number, g: { sessions: any[] }) => acc + g.sessions.length, 0);
 
@@ -437,6 +474,38 @@ export default function HistoryScreen() {
             <Plus size={20} color="#FFFFFF" strokeWidth={2.5} />
           </TouchableOpacity>
         </LinearGradient>
+
+        {/* Total Salary Card */}
+        <TouchableOpacity
+          style={styles.salaryOverviewCard}
+          onPress={() => setShowSalaryModal(true)}
+          activeOpacity={0.88}
+        >
+          <LinearGradient
+            colors={['#10B981', '#059669']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.salaryCardGradient}
+          >
+            <View style={styles.salaryOverviewIconContainer}>
+              <Wallet size={24} color="#FFFFFF" strokeWidth={2.2} />
+            </View>
+            <View style={styles.salaryOverviewContent}>
+              <Text style={styles.salaryOverviewTitle}>Total Estimasi Gaji</Text>
+              <Text style={styles.salaryOverviewValue}>
+                {formatCurrency(displayMonthSalary)}
+              </Text>
+              <Text style={styles.salaryOverviewSubtitle}>
+                {currentHourlyRate > 0
+                  ? `Tarif: ${formatCurrency(currentHourlyRate)} / jam`
+                  : 'Ketuk untuk atur gaji per jam'}
+              </Text>
+            </View>
+            <View style={styles.salaryEditBadge}>
+              <Pencil size={15} color="#FFFFFF" strokeWidth={2.4} />
+            </View>
+          </LinearGradient>
+        </TouchableOpacity>
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
             <CalendarDays size={20} color="#29b0f9" strokeWidth={2} />
@@ -515,6 +584,14 @@ export default function HistoryScreen() {
                               {formatDuration(monthTotalMinutes)}
                             </Text>
                           </View>
+                          {currentHourlyRate > 0 && (
+                            <View style={styles.collapsibleStatItem}>
+                              <Wallet size={12} color={isExpanded ? '#DBEAFE' : '#10B981'} strokeWidth={2} />
+                              <Text style={[styles.collapsibleMonthStats, isExpanded && styles.collapsibleMonthStatsActive]}>
+                                {formatCurrency(calculateTotalSalary(monthTotalMinutes, currentHourlyRate))}
+                              </Text>
+                            </View>
+                          )}
                         </View>
                       </View>
                       <View style={styles.headerRightActions}>
@@ -674,6 +751,146 @@ export default function HistoryScreen() {
         showOutToggle={false}
         defaultHasOut={true}
       />
+
+      {/* Salary Rate Modal */}
+      <Modal
+        visible={showSalaryModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSalaryModal(false)}
+      >
+        <View style={styles.salaryModalOverlay}>
+          <View style={styles.salaryModalContainer}>
+            <LinearGradient
+              colors={['#10B981', '#059669']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.salaryModalHeader}
+            >
+              <View style={styles.salaryModalHeaderContent}>
+                <Wallet size={24} color="#FFFFFF" strokeWidth={2.2} />
+                <View>
+                  <Text style={styles.salaryModalTitle}>Atur Tarif Gaji / Jam</Text>
+                  <Text style={styles.salaryModalSubtitle}>📍 {currentPlaceName}</Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                onPress={() => setShowSalaryModal(false)}
+                style={styles.salaryModalCloseBtn}
+                activeOpacity={0.7}
+              >
+                <X size={20} color="#FFFFFF" />
+              </TouchableOpacity>
+            </LinearGradient>
+
+            <View style={styles.salaryModalBody}>
+              <Text style={styles.salaryModalLabel}>Tarif Gaji per Jam</Text>
+              <View style={styles.salaryModalInputRow}>
+                <Text style={styles.salaryModalCurrency}>Rp</Text>
+                <TextInput
+                  style={styles.salaryModalInput}
+                  keyboardType="numeric"
+                  placeholder="0"
+                  placeholderTextColor="#94A3B8"
+                  value={
+                    salaryInputVal
+                      ? parseInt(salaryInputVal.replace(/[^0-9]/g, '') || '0', 10).toLocaleString('id-ID')
+                      : ''
+                  }
+                  onChangeText={(text) => {
+                    const raw = text.replace(/[^0-9]/g, '');
+                    setSalaryInputVal(raw);
+                  }}
+                  autoFocus
+                />
+                {salaryInputVal ? (
+                  <TouchableOpacity
+                    onPress={() => setSalaryInputVal('')}
+                    style={styles.salaryModalClear}
+                  >
+                    <Text style={styles.salaryModalClearText}>✕</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+
+              {/* Quick Preset Chips */}
+              <View style={styles.salaryModalChips}>
+                {[10000, 20000, 50000].map((preset) => (
+                  <TouchableOpacity
+                    key={preset}
+                    style={styles.salaryModalChip}
+                    onPress={() => {
+                      const current = salaryInputVal.replace(/[^0-9]/g, '');
+                      const currentVal = current ? parseInt(current, 10) : 0;
+                      setSalaryInputVal(String(currentVal + preset));
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.salaryModalChipText}>+{(preset / 1000).toLocaleString('id-ID')}rb</Text>
+                  </TouchableOpacity>
+                ))}
+                <TouchableOpacity
+                  style={[styles.salaryModalChip, styles.salaryModalResetChip]}
+                  onPress={() => setSalaryInputVal('0')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.salaryModalChipText, styles.salaryModalResetText]}>Reset</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Live Preview of Month Total Salary */}
+              <View style={styles.salaryModalPreview}>
+                <Text style={styles.salaryModalPreviewLabel}>
+                  Estimasi Total ({isFilterActive && filterMonth !== null && filterYear !== null
+                    ? (() => {
+                      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+                      return `${months[filterMonth]} ${filterYear}`;
+                    })()
+                    : 'Bulan Ini'}):
+                </Text>
+                <Text style={styles.salaryModalPreviewValue}>
+                  {formatCurrency(
+                    calculateTotalSalary(
+                      displayMonthTotalMinutes,
+                      parseInt(salaryInputVal.replace(/[^0-9]/g, '') || '0', 10)
+                    )
+                  )}
+                </Text>
+                <Text style={styles.salaryModalPreviewHours}>
+                  Berdasarkan {formatDuration(displayMonthTotalMinutes)} kerja
+                </Text>
+              </View>
+
+              {/* Action Buttons */}
+              <View style={styles.salaryModalActions}>
+                <TouchableOpacity
+                  style={styles.salaryModalCancelBtn}
+                  onPress={() => setShowSalaryModal(false)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.salaryModalCancelText}>Batal</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.salaryModalSaveBtn, isSavingSalary && styles.btnDisabled]}
+                  onPress={handleSaveSalaryRate}
+                  disabled={isSavingSalary}
+                  activeOpacity={0.85}
+                >
+                  {isSavingSalary ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <View style={styles.salaryModalSaveRow}>
+                      <Check size={18} color="#FFFFFF" strokeWidth={2.4} />
+                      <Text style={styles.salaryModalSaveText}>Simpan</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -968,5 +1185,247 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 12,
+  },
+  salaryOverviewCard: {
+    marginTop: 12,
+    borderRadius: 20,
+    overflow: 'hidden',
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  salaryCardGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+  },
+  salaryOverviewIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  salaryOverviewContent: {
+    flex: 1,
+  },
+  salaryOverviewTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: 'rgba(255, 255, 255, 0.85)',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  salaryOverviewValue: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: -0.3,
+  },
+  salaryOverviewSubtitle: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.85)',
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  salaryEditBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  salaryModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  salaryModalContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    width: '100%',
+    maxWidth: 360,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  salaryModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+  },
+  salaryModalHeaderContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  salaryModalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  salaryModalSubtitle: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontWeight: '600',
+  },
+  salaryModalCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  salaryModalBody: {
+    padding: 20,
+  },
+  salaryModalLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#475569',
+    marginBottom: 8,
+  },
+  salaryModalInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  salaryModalCurrency: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#10B981',
+    marginRight: 6,
+  },
+  salaryModalInput: {
+    flex: 1,
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#0F172A',
+    padding: 0,
+  },
+  salaryModalClear: {
+    padding: 4,
+    backgroundColor: '#E2E8F0',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  salaryModalClearText: {
+    fontSize: 12,
+    color: '#64748B',
+    fontWeight: '700',
+  },
+  salaryModalChips: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+    flexWrap: 'wrap',
+  },
+  salaryModalChip: {
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  salaryModalChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#16A34A',
+  },
+  salaryModalResetChip: {
+    backgroundColor: '#F1F5F9',
+    borderColor: '#E2E8F0',
+  },
+  salaryModalResetText: {
+    color: '#64748B',
+  },
+  salaryModalPreview: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+  },
+  salaryModalPreviewLabel: {
+    fontSize: 12,
+    color: '#64748B',
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  salaryModalPreviewValue: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#10B981',
+    marginBottom: 2,
+  },
+  salaryModalPreviewHours: {
+    fontSize: 11,
+    color: '#94A3B8',
+    fontWeight: '500',
+  },
+  salaryModalActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  salaryModalCancelBtn: {
+    flex: 1,
+    paddingVertical: 13,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  salaryModalCancelText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  salaryModalSaveBtn: {
+    flex: 1.4,
+    paddingVertical: 13,
+    backgroundColor: '#10B981',
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  salaryModalSaveRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  salaryModalSaveText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  btnDisabled: {
+    opacity: 0.6,
   },
 });

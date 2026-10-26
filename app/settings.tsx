@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -8,6 +8,7 @@ import {
   Modal,
   ActivityIndicator,
   Linking,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -22,6 +23,8 @@ import {
   Heart,
   Coffee,
   ExternalLink,
+  Wallet,
+  Check,
 } from 'lucide-react-native';
 import { useAttendanceStore } from '@/store/attendanceStore';
 import { router } from 'expo-router';
@@ -30,12 +33,42 @@ import { useAppUpdates } from '../hooks/useAppUpdates';
 import Constants from 'expo-constants';
 
 export default function SettingsScreen() {
-  const { currentPlaceId, places, clearCurrentPlaceData } = useAttendanceStore();
+  const { currentPlaceId, places, clearCurrentPlaceData, currentHourlyRate, setHourlyRate } = useAttendanceStore();
   const [showConfirm, setShowConfirm] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [showDonateModal, setShowDonateModal] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   const [checkStatusMsg, setCheckStatusMsg] = useState<string | null>(null);
+
+  // ─── Salary state ────────────────────────────────────────────────────────
+  const [salaryInput, setSalaryInput] = useState(currentHourlyRate > 0 ? String(currentHourlyRate) : '');
+  const [isSavingSalary, setIsSavingSalary] = useState(false);
+  const [salarySaveFeedback, setSalarySaveFeedback] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSalaryInput(currentHourlyRate > 0 ? String(currentHourlyRate) : '');
+  }, [currentHourlyRate, currentPlaceId]);
+
+  const handleSaveSalary = async () => {
+    setIsSavingSalary(true);
+    try {
+      const cleanNum = salaryInput.replace(/[^0-9]/g, '');
+      const rate = cleanNum ? parseInt(cleanNum, 10) : 0;
+      await setHourlyRate(rate);
+      setSalarySaveFeedback('Tarif gaji per jam berhasil disimpan!');
+      setTimeout(() => setSalarySaveFeedback(null), 3000);
+    } catch (e) {
+      console.error('Failed to save salary rate:', e);
+    } finally {
+      setIsSavingSalary(false);
+    }
+  };
+
+  const handleApplyPreset = (amount: number) => {
+    const current = salaryInput.replace(/[^0-9]/g, '');
+    const currentVal = current ? parseInt(current, 10) : 0;
+    setSalaryInput(String(currentVal + amount));
+  };
 
   // ─── Real app version from app.json via expo-constants ───────────────────
   const appVersion =
@@ -51,7 +84,7 @@ export default function SettingsScreen() {
 
   const handleManualCheckUpdates = async () => {
     setCheckStatusMsg(null);
-    await checkForUpdates();
+    await checkForUpdates(true);
     if (isUpdateAvailable) {
       setCheckStatusMsg('Pembaruan baru tersedia!');
     } else {
@@ -117,6 +150,101 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        {/* Salary Rate Settings */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Tarif Gaji per Jam</Text>
+          <View style={styles.salaryCard}>
+            <View style={styles.salaryCardHeader}>
+              <LinearGradient
+                colors={['#10B981', '#059669']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.salaryIconContainer}
+              >
+                <Wallet size={22} color="#FFFFFF" strokeWidth={2.2} />
+              </LinearGradient>
+              <View style={styles.salaryCardInfo}>
+                <Text style={styles.salaryCardTitle}>Gaji per Jam ({currentPlaceName})</Text>
+                <Text style={styles.salaryCardSubtitle}>
+                  Digunakan untuk hitung otomatis total gaji bulanan
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.salaryInputContainer}>
+              <Text style={styles.currencyPrefix}>Rp</Text>
+              <TextInput
+                style={styles.salaryInput}
+                keyboardType="numeric"
+                placeholder="0"
+                placeholderTextColor="#94A3B8"
+                value={
+                  salaryInput
+                    ? parseInt(salaryInput.replace(/[^0-9]/g, '') || '0', 10).toLocaleString('id-ID')
+                    : ''
+                }
+                onChangeText={(text) => {
+                  const raw = text.replace(/[^0-9]/g, '');
+                  setSalaryInput(raw);
+                }}
+              />
+              {salaryInput ? (
+                <TouchableOpacity
+                  onPress={() => setSalaryInput('')}
+                  style={styles.salaryClearBtn}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.salaryClearText}>✕</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+
+            {/* Quick preset chips */}
+            <View style={styles.salaryChipsRow}>
+              {[10000, 20000, 50000].map((preset) => (
+                <TouchableOpacity
+                  key={preset}
+                  style={styles.presetChip}
+                  onPress={() => handleApplyPreset(preset)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.presetChipText}>+{(preset / 1000).toLocaleString('id-ID')}rb</Text>
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity
+                style={[styles.presetChip, styles.resetChip]}
+                onPress={() => setSalaryInput('0')}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.presetChipText, styles.resetChipText]}>Reset</Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.saveSalaryBtn, isSavingSalary && styles.disabledCard]}
+              onPress={handleSaveSalary}
+              disabled={isSavingSalary}
+              activeOpacity={0.85}
+            >
+              {isSavingSalary ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <View style={styles.saveSalaryRow}>
+                  <Check size={18} color="#FFFFFF" strokeWidth={2.4} />
+                  <Text style={styles.saveSalaryText}>Simpan Tarif Gaji</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+
+            {salarySaveFeedback && (
+              <View style={styles.feedbackBox}>
+                <CheckCircle2 size={16} color="#10B981" strokeWidth={2.2} />
+                <Text style={styles.feedbackText}>{salarySaveFeedback}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
         {/* Data Management */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Manajemen Data</Text>
@@ -157,7 +285,7 @@ export default function SettingsScreen() {
                 <Text style={styles.updateCardSubtitle}>
                   {lastChecked
                     ? `Terakhir dicek: ${lastChecked.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                    : 'Pembaruan otomatis 30 mnt setelah rilis'}
+                    : 'Pembaruan otomatis saat versi baru tersedia'}
                 </Text>
               </View>
             </View>
@@ -672,5 +800,142 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#64748B',
+  },
+  salaryCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+  },
+  salaryCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 12,
+  },
+  salaryIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  salaryCardInfo: {
+    flex: 1,
+  },
+  salaryCardTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginBottom: 2,
+  },
+  salaryCardSubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    lineHeight: 16,
+  },
+  salaryInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  currencyPrefix: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#10B981',
+    marginRight: 6,
+  },
+  salaryInput: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0F172A',
+    padding: 0,
+  },
+  salaryClearBtn: {
+    padding: 4,
+    backgroundColor: '#E2E8F0',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  salaryClearText: {
+    fontSize: 12,
+    color: '#64748B',
+    fontWeight: '700',
+  },
+  salaryChipsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+    flexWrap: 'wrap',
+  },
+  presetChip: {
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  presetChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#16A34A',
+  },
+  resetChip: {
+    backgroundColor: '#F1F5F9',
+    borderColor: '#E2E8F0',
+  },
+  resetChipText: {
+    color: '#64748B',
+  },
+  saveSalaryBtn: {
+    backgroundColor: '#10B981',
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveSalaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  saveSalaryText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  feedbackBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    marginTop: 12,
+  },
+  feedbackText: {
+    fontSize: 13,
+    color: '#16A34A',
+    fontWeight: '600',
   },
 });

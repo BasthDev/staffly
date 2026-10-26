@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Modal,
   View,
@@ -35,6 +35,10 @@ export default function MonthFilter({
   selectedMonth,
 }: MonthFilterProps) {
   const [displayYear, setDisplayYear] = useState(selectedYear);
+
+  useEffect(() => {
+    setDisplayYear(selectedYear);
+  }, [selectedYear]);
 
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth();
@@ -151,7 +155,10 @@ export default function MonthFilter({
                 <Text style={styles.clearButtonText}>Tampilkan Semua</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                onPress={() => handleSelectMonth(currentMonth)}
+                onPress={() => {
+                  onSelectMonth(currentYear, currentMonth);
+                  onClose();
+                }}
                 style={styles.todayButton}
                 activeOpacity={0.8}
               >
