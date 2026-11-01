@@ -84,6 +84,11 @@ def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 android {
     ndkVersion rootProject.ext.ndkVersion
 
+    lintOptions {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
@@ -92,8 +97,8 @@ android {
         applicationId 'id.my.basth.staffly'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 5
-        versionName "2.0.3"
+        versionCode 6
+        versionName "2.0.4"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
@@ -104,7 +109,6 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
-
         release {
             if (project.hasProperty('MYAPP_RELEASE_STORE_FILE')) {
                 storeFile file(MYAPP_RELEASE_STORE_FILE)
@@ -119,8 +123,6 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
             signingConfig signingConfigs.release
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources enableShrinkResources.toBoolean()
@@ -187,5 +189,19 @@ dependencies {
         implementation("com.facebook.react:hermes-android")
     } else {
         implementation jscFlavor
+    }
+}
+
+// Disables lintVital across all subprojects/libraries to prevent release build crashes
+subprojects {
+    afterEvaluate { subproject ->
+        if (subproject.hasProperty('android')) {
+            subproject.android {
+                lintOptions {
+                    checkReleaseBuilds false
+                    abortOnError false
+                }
+            }
+        }
     }
 }

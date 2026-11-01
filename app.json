@@ -2,7 +2,7 @@
   "expo": {
     "name": "Staffly",
     "slug": "staffly",
-    "version": "2.0.3",
+    "version": "2.0.4",
     "orientation": "portrait",
     "icon": "./assets/images/Staffly.png",
     "scheme": "staffly",
@@ -15,7 +15,7 @@
     },
     "android": {
       "package": "id.my.basth.staffly",
-      "versionCode": 5,
+      "versionCode": 6,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/Staffly.png",
         "backgroundColor": "#ffffff"
@@ -42,13 +42,12 @@
           "hidden": true,
           "style": "dark"
         }
-      ],
-      "expo-sharing"
+      ]
     ],
     "updates": {
       "url": "https://u.expo.dev/9d105859-60cd-4826-bebe-99f86d9539e5"
     },
-    "runtimeVersion": "2.0.3",
+    "runtimeVersion": "2.0.4",
     "experiments": {
       "typedRoutes": true
     },
